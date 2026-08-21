@@ -1,0 +1,438 @@
+.viewport.sketch-mode .sketcher-shell {
+  z-index: 3;
+  background: transparent;
+}
+
+.viewport.sketch-mode .webgl-host {
+  z-index: 1;
+  top: 42px;
+  bottom: 25px;
+}
+
+.viewport.sketch-mode .view-label {
+  z-index: 4;
+  top: 50px;
+}
+
+.sketch-canvas.tool-trim {
+  cursor: crosshair;
+}
+
+.sketch-canvas.tool-trim .sketch-dimension {
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+.sketch-entity .trim-hit {
+  fill: none !important;
+  stroke: transparent !important;
+  stroke-width: 14px !important;
+  pointer-events: stroke;
+  vector-effect: non-scaling-stroke;
+}
+
+.sketcher-shell.view-rotated {
+  pointer-events: none;
+}
+
+.sketcher-shell.view-rotated .sketch-commandbar,
+.sketcher-shell.view-rotated .sketch-status {
+  pointer-events: auto;
+}
+
+.sketcher-shell.view-rotated .sketch-canvas {
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.tree-row.body-row {
+  padding-left: 49px;
+}
+
+.tree-row.body-row .body-icon {
+  font-size: 15px;
+}
+
+.body-folder {
+  color: #8fa2b5;
+}
+
+.body-properties {
+  padding: 14px;
+  color: #92a2b2;
+  font-size: 12px;
+}
+
+.body-properties h3 {
+  margin: 2px 0 9px;
+  color: #d0dbe5;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.body-properties p {
+  line-height: 1.5;
+}
+
+.body-properties .body-stat {
+  display: flex;
+  justify-content: space-between;
+  margin: 7px 0;
+  padding: 8px;
+  border: 1px solid #293743;
+  border-radius: 4px;
+  background: #111820;
+}
+
+.body-properties .body-stat strong {
+  color: #8bdcf7;
+}
+
+.tree-row.support-choice {
+  color: #d9f5ff;
+  background: #102a38;
+  box-shadow: inset 2px 0 #38bdf8;
+}
+
+.tree-row.support-choice:hover {
+  background: #164158;
+}
+
+.support-pick-callout {
+  position: absolute;
+  z-index: 5;
+  top: 20px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 360px;
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border: 1px solid #38bdf8;
+  border-radius: 7px;
+  background: #0d1b24eb;
+  box-shadow: 0 10px 32px #0009;
+  pointer-events: none;
+  text-align: center;
+}
+
+.support-pick-callout strong {
+  color: #dff7ff;
+}
+
+.support-pick-callout span {
+  color: #8db6c8;
+  font-size: 10px;
+}
+
+.sketch-dimension {
+  cursor: grab;
+  outline: none;
+}
+
+.sketch-dimension:focus rect {
+  stroke: #f6b94d;
+  stroke-width: var(--sketch-highlight-width, 1.2px);
+}
+
+.sketch-canvas.dragging-dimension .sketch-dimension {
+  cursor: grabbing;
+}
+
+.control-layer.inactive .control-point {
+  opacity: 0.38;
+}
+
+.control-layer.inactive .control-point:hover {
+  opacity: 1;
+  stroke: #f6b94d;
+  stroke-width: var(--sketch-highlight-width, 1.2px);
+}
+
+.dimension-leader {
+  fill: none;
+  stroke: #4d8da7;
+  stroke-width: 0.7;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.sketch-ribbon-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 5px;
+  background: #34434f;
+}
+
+.constraint-menu-label {
+  margin: 0 3px 0 1px;
+  color: #6f8597;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sketch-commandbar .constraint-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.linear-dimension-icon {
+  display: inline-grid;
+  width: 18px;
+  height: 14px;
+  place-items: center;
+  border-top: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  color: #71d6f7;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sketch-canvas.tool-linear-dimension {
+  cursor: crosshair;
+}
+
+.external-reference {
+  fill: none;
+  stroke-width: 7px;
+  vector-effect: non-scaling-stroke;
+  cursor: crosshair;
+  pointer-events: stroke;
+}
+
+.external-reference.body-edge {
+  stroke: #ae8f42;
+  opacity: 0.48;
+}
+
+.external-reference.plane-intersection {
+  stroke: #b56cf0;
+  stroke-dasharray: 8 4;
+  opacity: 0.72;
+}
+
+.external-reference:hover {
+  stroke: #ffe28a;
+  stroke-width: var(--sketch-highlight-width, 1.2px);
+  opacity: 0.95;
+}
+
+.external-reference-point {
+  fill: #ae8f42;
+  stroke: #ffe28a;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+  cursor: crosshair;
+}
+
+.external-reference-point:hover {
+  fill: #ffe28a;
+  stroke-width: var(--sketch-highlight-width, 1.2px);
+}
+
+.axis-reference-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: crosshair;
+  outline: none;
+}
+
+.sketch-canvas.tool-linear-dimension .dimension-annotation {
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.sketch-canvas.tool-linear-dimension .reference-highlighted {
+  stroke: #ffd56f !important;
+  stroke-width: var(--sketch-highlight-width, 1.2px) !important;
+  opacity: 1;
+}
+
+.sketch-line-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 20;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.constraint-line-hit {
+  stroke-width: 28;
+  cursor: crosshair;
+}
+
+.constraint-node-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: crosshair;
+  outline: none;
+}
+
+.constraint-node {
+  fill: #101820;
+  stroke: #f5bf50;
+  stroke-width: 1.3;
+  vector-effect: non-scaling-stroke;
+  cursor: crosshair;
+  outline: none;
+  pointer-events: none;
+}
+
+.sketch-canvas.tool-linear-dimension .linear-constraint:not(.preview),
+.sketch-canvas.tool-linear-dimension .relation-glyph {
+  pointer-events: none;
+}
+
+.constraint-node.reference-highlighted {
+  fill: #ffd56f;
+  stroke: #ffd56f;
+}
+
+.linear-constraint {
+  color: #68d8ff;
+}
+
+.linear-constraint line,
+.linear-constraint path {
+  vector-effect: non-scaling-stroke;
+}
+
+.constraint-extension {
+  stroke: currentColor;
+  stroke-width: 0.65;
+  stroke-dasharray: 3 2;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.constraint-measure {
+  stroke: currentColor;
+  stroke-width: 0.9;
+  pointer-events: none;
+}
+
+.constraint-arrow {
+  fill: currentColor;
+  stroke: none;
+  pointer-events: none;
+}
+
+.constraint-label {
+  cursor: grab;
+  outline: none;
+}
+
+.constraint-label rect,
+.constraint-preview-label rect {
+  fill: #101b23;
+  stroke: #39768e;
+  stroke-width: 0.8;
+}
+
+.constraint-label text,
+.constraint-preview-label text {
+  fill: #c4f2ff;
+  font: 6.5px Segoe UI, Arial, sans-serif;
+  pointer-events: none;
+}
+
+.linear-constraint.selected .constraint-label rect,
+.constraint-label:hover rect,
+.constraint-label:focus rect {
+  fill: #2d2718;
+  stroke: #f6bd4a;
+  stroke-width: var(--sketch-highlight-width, 1.2px);
+}
+
+.linear-constraint.selected .constraint-measure,
+.linear-constraint.selected .constraint-extension {
+  stroke: #f6bd4a;
+  stroke-width: var(--sketch-highlight-width, 1.2px);
+}
+
+.linear-constraint.preview {
+  opacity: 0.86;
+  pointer-events: none;
+}
+
+.linear-constraint.preview .constraint-measure,
+.linear-constraint.preview .constraint-extension {
+  stroke-dasharray: 4 2;
+}
+
+.constraint-preview-label .orientation-hint {
+  fill: #7f9dad;
+  font-size: 4.8px;
+  text-transform: capitalize;
+}
+
+.linear-constraint.conflicted {
+  color: #ff5968;
+}
+
+.linear-constraint.conflicted .constraint-label rect {
+  fill: #30151a;
+  stroke: #ff5968;
+}
+
+.linear-constraint.conflicted .constraint-label text,
+.sketch-status.over-defined span:last-child {
+  fill: #ff9da6;
+  color: #ff7e8a;
+}
+
+.sketch-status.over-defined i {
+  background: #ff5968;
+  box-shadow: 0 0 8px #ff5968;
+}
+
+.sketch-canvas.marquee-selecting {
+  cursor: crosshair;
+}
+
+.sketch-canvas.tool-select .sketch-entity.selected > * {
+  cursor: move;
+}
+
+.sketch-canvas.dragging-selection,
+.sketch-canvas.dragging-selection .sketch-entity.selected > * {
+  cursor: grabbing;
+}
+
+.sketch-selection-box {
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1;
+}
+
+.sketch-selection-box.window {
+  fill: rgb(48 151 255 / 12%);
+  stroke: #4eb2ff;
+}
+
+.sketch-selection-box.crossing {
+  fill: rgb(83 211 132 / 12%);
+  stroke: #53d384;
+  stroke-dasharray: 5 3;
+}
+
+.dimension-annotation.selected .sketch-dimension rect {
+  fill: #2d2718;
+  stroke: #f6bd4a;
+  stroke-width: var(--sketch-highlight-width, 1.2px);
+}
+
+.dimension-annotation.selected .sketch-dimension line,
+.dimension-annotation.selected .sketch-dimension path,
+.dimension-annotation.selected .sketch-dimension text {
+  fill: #f6bd4a;
+  stroke: #f6bd4a;
+}
