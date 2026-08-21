@@ -130,6 +130,11 @@ test("sketcher exposes profile tools, editable dimensions, and draggable control
   assert.match(page, /onConstraintsChange=\{updateSketchConstraints\}/);
 });
 
+test("placed linear dimensions remain draggable while the dimension tool is active", async () => {
+  const css = await readFile(new URL("../app/modeling.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /tool-linear-dimension\s+\.linear-constraint:not\(\.preview\)[^{]*\{[^}]*pointer-events:\s*none/);
+});
+
 test("3D viewport rebuilds the document and displays unconsumed sketches", async () => {
   const viewport = await source("app/components/CadViewport.tsx");
 

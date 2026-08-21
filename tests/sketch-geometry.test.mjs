@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { entityInSelectionBox, nearestGridVertex, normalizedSelectionBox, pointInSelectionBox, translateSketchEntity, trimEntityAtPoint } from "../app/components/sketchGeometry.ts";
+import { entityInSelectionBox, nearestGridVertex, normalizedSelectionBox, pointInSelectionBox, sketchRelationIsSatisfied, translateSketchEntity, trimEntityAtPoint } from "../app/components/sketchGeometry.ts";
 
 test("every independent grid vertex is reachable without skipping", () => {
   const spacing = 8;
@@ -30,6 +30,16 @@ test("group translation preserves the shape of each selected entity", () => {
   const circle = { id: "circle", type: "circle", c: { x: 10, y: 20 }, r: 6 };
   assert.deepEqual(translateSketchEntity(line, { x: 8, y: -2 }), { ...line, a: { x: 5, y: -1 }, b: { x: 12, y: 3 } });
   assert.deepEqual(translateSketchEntity(circle, { x: 8, y: -2 }), { ...circle, c: { x: 18, y: 18 } });
+});
+
+test("horizontal and vertical relation badges follow the live line geometry", () => {
+  const horizontal = { id: "horizontal", type: "line", a: { x: 0, y: 4 }, b: { x: 12, y: 4 }, relations: ["Horizontal"] };
+  const vertical = { id: "vertical", type: "line", a: { x: 7, y: -3 }, b: { x: 7, y: 9 }, relations: ["Vertical"] };
+  assert.equal(sketchRelationIsSatisfied(horizontal, "Horizontal"), true);
+  assert.equal(sketchRelationIsSatisfied({ ...horizontal, b: { x: 12, y: 4.01 } }, "Horizontal"), false);
+  assert.equal(sketchRelationIsSatisfied(vertical, "Vertical"), true);
+  assert.equal(sketchRelationIsSatisfied({ ...vertical, b: { x: 7.01, y: 9 } }, "Vertical"), false);
+  assert.equal(sketchRelationIsSatisfied(horizontal, "Coincident"), true);
 });
 
 test("trim splits a circle at rectangle intersections and removes only the clicked arc", () => {
@@ -71,4 +81,19 @@ test("a diameter bisects a circle so either clicked semicircle can be trimmed", 
   assert.equal(upperHalf[0].type, "arc");
   assert.ok(lowerHalf[0].through.y > 19);
   assert.ok(upperHalf[0].through.y < -19);
+});
+
+test("a bisecting line trims only the clicked half of an ellipse", () => {
+  const ellipse = { id: "ellipse", type: "ellipse", c: { x: 0, y: 0 }, rx: 20, ry: 10 };
+  const bisector = { id: "bisector", type: "line", a: { x: 0, y: -20 }, b: { x: 0, y: 20 } };
+  const remaining = trimEntityAtPoint(ellipse, { x: 20, y: 0 }, [ellipse, bisector]);
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].type, "spline");
+  assert.ok(remaining[0].points.every((point) => point.x <= 0.001));
+  assert.ok(remaining[0].points.some((point) => Math.abs(point.x + 20) < 0.01));
+});
+
+test("an ellipse without intersections is preserved when trim is clicked", () => {
+  const ellipse = { id: "ellipse", type: "ellipse", c: { x: 0, y: 0 }, rx: 20, ry: 10 };
+  assert.deepEqual(trimEntityAtPoint(ellipse, { x: 20, y: 0 }, [ellipse]), [ellipse]);
 });

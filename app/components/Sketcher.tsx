@@ -1,19 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { circumcircle, distance, entityInSelectionBox, midpoint, nearestGridVertex, normalizedSelectionBox, pointInSelectionBox, translateSketchEntity, trimEntityAtPoint, type Point, type SketchEntity } from "./sketchGeometry";
-import { constraintSupersedesSegmentDimension, controlPointsForEntity, cycleLinearOrientation, defaultLinearDimensionPosition, defaultLinearOrientation, dimensionReferencePoints, linearDimensionLayout, linearDimensionValue, linearOrientationOptions, nonOverlappingReferenceHitRadius, referencePoint, targetPointForLinearValue, validLinearDimensionPair, type ExternalSketchReference, type LinearDimensionConstraint, type LinearOrientation, type SketchReference } from "./sketchConstraints";
+import { circumcircle, distance, entityInSelectionBox, midpoint, nearestGridVertex, normalizedSelectionBox, pointInSelectionBox, sketchRelationIsSatisfied, translateSketchEntity, trimEntityAtPoint, type Point, type SketchEntity } from "./sketchGeometry";
+import { constraintSupersedesOrthogonalProfileDimension, constraintSupersedesSegmentDimension, controlPointsForEntity, cycleLinearOrientation, defaultLinearDimensionPosition, defaultLinearOrientation, dimensionReferencePoints, linearDimensionLayout, linearDimensionValue, linearOrientationOptions, nonOverlappingReferenceHitRadius, referencePoint, targetPointForLinearValue, validLinearDimensionPair, type ExternalSketchReference, type LinearDimensionConstraint, type LinearOrientation, type SketchReference } from "./sketchConstraints";
 import { formatLength, fromMillimeters, toMillimeters, type UnitSystem } from "./units";
 export type { Point, SketchEntity } from "./sketchGeometry";
 export type { ExternalSketchReference, LinearDimensionConstraint } from "./sketchConstraints";
 
-type Tool = "select" | "line" | "centerline" | "rectangle" | "circle" | "ellipse" | "arc" | "spline" | "trim" | "linear-dimension";
+type Tool = "select" | "line" | "centerline" | "rectangle" | "circle" | "ellipse" | "arc" | "spline" | "trim" | "linear-dimension" | "horizontal-constraint" | "vertical-constraint";
 type Snap = { point: Point; kind: "endpoint" | "midpoint" | "center" | "quadrant" | "grid" | "horizontal" | "vertical" };
 type DimensionInfo = { key: string; entityId: string; axis?: "major" | "minor"; anchor: Point; offset: Point; text: string; value: number };
 type DimensionDrag = { key: string; pointerId: number; startPoint: Point; originalOffset: Point; captureTarget: SVGGElement };
 type ConstraintDrag = { id: string; pointerId: number; captureTarget: SVGGElement };
 type SelectionMarquee = { start: Point; current: Point; pointerId: number };
 type MultiSelectionDrag = { pointerId: number; start: Point; originalEntities: SketchEntity[]; originalConstraints: LinearDimensionConstraint[]; originalDimensionOffsets: Record<string, Point>; moved: boolean };
+type AxisRelation = "Horizontal" | "Vertical";
+type ConstraintShortcut = { x: number; y: number; entityId: string; relation: AxisRelation };
 export type SketchView = { center: Point; zoom: number };
 
 const VIEW = { x: -260, y: -180, width: 520, height: 360 };
@@ -111,6 +113,14 @@ function moveControlPoint(entity: SketchEntity, handle: string, point: Point): S
   return { ...entity, points: entity.points.map((existing, pointIndex) => pointIndex === index ? point : existing) };
 }
 
+function constrainedEndpoint(entity: SketchEntity, handle: string, point: Point): Point {
+  if (entity.type !== "line" || (handle !== "a" && handle !== "b")) return point;
+  const fixed = handle === "a" ? entity.b : entity.a;
+  if (entity.axisConstraint === "Horizontal") return { x: point.x, y: fixed.y };
+  if (entity.axisConstraint === "Vertical") return { x: fixed.x, y: point.y };
+  return point;
+}
+
 function dimensionsFor(entity: SketchEntity): DimensionInfo[] {
   if (entity.type === "line") {
     const m = midpoint(entity.a, entity.b);
@@ -162,6 +172,8 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
   const [selectionMarquee, setSelectionMarquee] = useState<SelectionMarquee | null>(null);
   const [draggingSelection, setDraggingSelection] = useState<MultiSelectionDrag | null>(null);
   const [draggingConstraint, setDraggingConstraint] = useState<ConstraintDrag | null>(null);
+  const [selectedAxisConstraint, setSelectedAxisConstraint] = useState<{ entityId: string; relation: AxisRelation } | null>(null);
+  const [constraintShortcut, setConstraintShortcut] = useState<ConstraintShortcut | null>(null);
   const dragStartRef = useRef<SketchEntity[] | null>(null);
   const lineClickRef = useRef<{ entityId: string; at: number } | null>(null);
   const selected = selectedEntityIds.at(-1) ?? null;
@@ -235,22 +247,23 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     setDimensionOptions(options); setDimensionOrientation(orientation); setDimensionReferences([first, reference]); setCursor(position);
   };
 
-  const clearSelection = () => { setSelectedEntityIds([]); setSelectedConstraintIds([]); setSelectedDimensionKeys([]); };
+  const clearSelection = () => { setSelectedEntityIds([]); setSelectedConstraintIds([]); setSelectedDimensionKeys([]); setSelectedAxisConstraint(null); };
   const constraintReferencesEntity = (constraint: LinearDimensionConstraint, entityIds: Set<string>) => [constraint.first, constraint.second].some((reference) => (reference.kind === "node" || reference.kind === "line") && entityIds.has(reference.entityId));
   const deleteSelection = () => {
     if (editingDimension || editingConstraintId) return;
     const entityIds = new Set(selectedEntityIds); const constraintIds = new Set(selectedConstraintIds);
     if (entityIds.size) commit(entities.filter((entity) => !entityIds.has(entity.id)));
+    if (selectedAxisConstraint) commit(entities.map((entity) => entity.id === selectedAxisConstraint.entityId ? { ...entity, axisConstraint: undefined, relations: entity.relations?.filter((relation) => relation !== selectedAxisConstraint.relation) } : entity));
     if (constraintIds.size || entityIds.size) commitConstraints(constraints.filter((constraint) => !constraintIds.has(constraint.id) && !constraintReferencesEntity(constraint, entityIds)));
     if (selectedDimensionKeys.length) setHiddenDimensionKeys((keys) => [...new Set([...keys, ...selectedDimensionKeys])]);
-    if (entityIds.size || constraintIds.size || selectedDimensionKeys.length) clearSelection();
+    if (entityIds.size || constraintIds.size || selectedDimensionKeys.length || selectedAxisConstraint) clearSelection();
   };
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setEditingConstraintId(null); finishChain(); }
+      if (event.key === "Escape") { setEditingConstraintId(null); setConstraintShortcut(null); finishChain(); }
       if (event.key === "Tab" && tool === "linear-dimension" && dimensionReferences.length === 2) { event.preventDefault(); setDimensionOrientation((orientation) => cycleLinearOrientation(orientation, dimensionOptions)); }
-      if ((event.key === "Delete" || event.key === "Backspace") && (selectedEntityIds.length || selectedConstraintIds.length || selectedDimensionKeys.length) && !editingDimension && !editingConstraintId) { event.preventDefault(); deleteSelection(); }
+      if ((event.key === "Delete" || event.key === "Backspace") && (selectedEntityIds.length || selectedConstraintIds.length || selectedDimensionKeys.length || selectedAxisConstraint) && !editingDimension && !editingConstraintId) { event.preventDefault(); deleteSelection(); }
       if (event.key === "Enter" && tool === "spline") finishSpline();
       if (event.ctrlKey && event.key.toLowerCase() === "z") { event.preventDefault(); undo(); }
       if (event.ctrlKey && event.key.toLowerCase() === "y") { event.preventDefault(); redo(); }
@@ -315,10 +328,16 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     if (dragging) {
       const raw = pointFromEvent(event);
       const activeSnap = findSnap(raw, undefined, dragging.entityId);
-      const nextPoint = activeSnap?.point ?? raw;
+      let nextPoint = activeSnap?.point ?? raw;
       const source = entities.find((entity) => entity.id === dragging.entityId);
       if (!source) return;
       const currentPoint = controlPointsForEntity(source).find((control) => control.handle === dragging.handle)?.point ?? dragging.originalPoint;
+      nextPoint = constrainedEndpoint(source, dragging.handle, nextPoint);
+      for (const entity of entities) {
+        if (entity.id === source.id || entity.type !== "line") continue;
+        if (distance(entity.a, currentPoint) < 0.001) nextPoint = constrainedEndpoint(entity, "a", nextPoint);
+        else if (distance(entity.b, currentPoint) < 0.001) nextPoint = constrainedEndpoint(entity, "b", nextPoint);
+      }
       let next = entities.map((entity) => entity.id === dragging.entityId ? moveControlPoint(entity, dragging.handle, nextPoint) : entity);
       const propagates = dragging.handle === "a" || dragging.handle === "b" || (dragging.handle.startsWith("point-") && (dragging.handle === "point-0" || dragging.handle === `point-${source.type === "spline" ? source.points.length - 1 : -1}`));
       if (propagates) next = next.map((entity) => entity.id === dragging.entityId ? entity : replaceConnectedPoint(entity, currentPoint, nextPoint));
@@ -378,8 +397,23 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     setFuture([]); dragStartRef.current = null; setDragging(null); setSnap(null);
   };
   const relationFrom = (activeSnap: Snap | null) => activeSnap ? ({ horizontal: "Horizontal", vertical: "Vertical", endpoint: "Coincident", midpoint: "Midpoint", center: "Concentric", quadrant: "Quadrant", grid: "Grid" }[activeSnap.kind]) : "Free";
+  const applyAxisConstraint = (entityId: string, relation: AxisRelation) => {
+    const source = entities.find((entity) => entity.id === entityId);
+    if (!source || source.type !== "line") return;
+    const nextB = relation === "Horizontal" ? { x: source.b.x, y: source.a.y } : { x: source.a.x, y: source.b.y };
+    const constrained = { ...source, b: nextB, axisConstraint: relation, relations: [...(source.relations ?? []).filter((item) => item !== "Horizontal" && item !== "Vertical"), relation] };
+    const next = entities.map((entity) => entity.id === source.id ? constrained : replaceConnectedPoint(entity, source.b, nextB));
+    commit(next); setSelected(entityId); setSelectedAxisConstraint({ entityId, relation }); setConstraintShortcut(null);
+  };
+  const openConstraintShortcut = (event: React.MouseEvent<SVGGElement>, entity: SketchEntity) => {
+    if (entity.type !== "line") return;
+    event.preventDefault(); event.stopPropagation();
+    const relation: AxisRelation = Math.abs(entity.b.x - entity.a.x) >= Math.abs(entity.b.y - entity.a.y) ? "Horizontal" : "Vertical";
+    setConstraintShortcut({ x: event.clientX, y: event.clientY, entityId: entity.id, relation });
+  };
   const onCanvasPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
     if (event.button !== 0) return;
+    setConstraintShortcut(null);
     if (tool === "select") {
       const start = pointFromEvent(event); event.preventDefault(); clearSelection(); setSelectionMarquee({ start, current: start, pointerId: event.pointerId }); setSnap(null); event.currentTarget.setPointerCapture(event.pointerId); return;
     }
@@ -507,7 +541,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
   const visibleDimensions = allDimensions.filter((dimension) => {
     if (hiddenDimensionKeys.includes(dimension.key)) return false;
     const entity = entities.find((candidate) => candidate.id === dimension.entityId);
-    return !entity || !constraints.some((constraint) => constraintSupersedesSegmentDimension(constraint, entity));
+    return !entity || !constraints.some((constraint) => constraintSupersedesOrthogonalProfileDimension(constraint, entity, entities));
   });
   const selectionCount = selectedEntityIds.length + selectedConstraintIds.length + selectedDimensionKeys.length;
   const marqueeBox = selectionMarquee ? normalizedSelectionBox(selectionMarquee.start, selectionMarquee.current) : null;
@@ -528,6 +562,8 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
       <i className="sketch-ribbon-divider" />
       <b className="constraint-menu-label">Constraints</b>
       <button disabled={viewRotated} className={`constraint-tool ${tool === "linear-dimension" && !viewRotated ? "active" : ""}`} aria-label="Linear dimension constraint" title="Linear dimension: select two nodes or lines, press Tab to change orientation, then click to place" onClick={() => { setTool("linear-dimension"); setDraft([]); setDimensionReferences([]); setDimensionMessage(null); setSelected(null); }}><span className="linear-dimension-icon">↔</span>Linear dimension</button>
+      <button disabled={viewRotated} className={`constraint-tool axis-constraint-tool ${tool === "horizontal-constraint" && !viewRotated ? "active" : ""}`} aria-label="Horizontal constraint" title="Lock a line horizontal" onClick={() => { setTool("horizontal-constraint"); setDraft([]); clearSelection(); }}><span className="axis-constraint-icon horizontal" />Horizontal</button>
+      <button disabled={viewRotated} className={`constraint-tool axis-constraint-tool ${tool === "vertical-constraint" && !viewRotated ? "active" : ""}`} aria-label="Vertical constraint" title="Lock a line vertical" onClick={() => { setTool("vertical-constraint"); setDraft([]); clearSelection(); }}><span className="axis-constraint-icon vertical" />Vertical</button>
       <button className={viewRotated ? "active" : ""} onClick={onSnapNormal}>Snap normal</button>
       <span />
       <button onClick={undo} disabled={!history.length}>Undo</button><button onClick={redo} disabled={!future.length}>Redo</button>
@@ -545,7 +581,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
         const chooseExternalReference = (event: React.PointerEvent<SVGElement>) => { event.stopPropagation(); const position = pointFromEvent(event); if (reference.kind === "plane-intersection") chooseDimensionReference({ kind: "external-line", referenceId: reference.id, a: reference.points[0], b: reference.points.at(-1)!, source: "plane-intersection" }, position); else chooseDimensionReference({ kind: "external-point", referenceId: reference.id, point: nearestPointOnPath(position, reference.points), source: "body-edge" }, position); };
         return collapsed ? <circle key={reference.id} className="external-reference-point" aria-label={reference.label} cx={reference.points[0].x} cy={reference.points[0].y} r={nodeRadius * 1.25} onPointerDown={chooseExternalReference}/> : <polyline key={reference.id} className={`external-reference ${reference.kind}`} aria-label={reference.label} points={reference.points.map((point) => `${point.x},${point.y}`).join(" ")} onPointerDown={chooseExternalReference}/>;
       })}
-      {entities.map((entity) => { const referenceId = `line:${entity.id}`; const referenceChosen = dimensionReferences.some((reference) => reference.kind === "line" && reference.entityId === entity.id); return <g key={entity.id} className={`sketch-entity ${selectedEntityIds.includes(entity.id) ? "selected" : ""} ${entity.construction ? "construction" : ""} ${tool === "linear-dimension" && entity.type === "line" ? "constraint-selectable" : ""}`} onPointerDown={(event) => { if (tool === "linear-dimension" && entity.type === "line") { event.stopPropagation(); const now = performance.now(); const previous = lineClickRef.current; if (previous?.entityId === entity.id && now - previous.at <= 500) { event.preventDefault(); lineClickRef.current = null; createLineLengthDimension(entity); return; } lineClickRef.current = { entityId: entity.id, at: now }; chooseDimensionReference({ kind: "line", entityId: entity.id }, pointFromEvent(event)); return; } if (tool !== "select" && tool !== "trim") return; event.stopPropagation(); if (tool === "trim") { const replacements = trimEntityAtPoint(entity, pointFromEvent(event), entities); commit(entities.flatMap((item) => item.id === entity.id ? replacements : [item])); setSelected(null); return; } if (selectedEntityIds.includes(entity.id) && selectionCount > 1) { beginSelectionDrag(event); return; } setSelected(entity.id); setSelectedConstraintId(null); setSelectedDimensionKeys([]); setTool("select"); }}>
+      {entities.map((entity) => { const referenceId = `line:${entity.id}`; const referenceChosen = dimensionReferences.some((reference) => reference.kind === "line" && reference.entityId === entity.id); return <g key={entity.id} className={`sketch-entity ${selectedEntityIds.includes(entity.id) ? "selected" : ""} ${entity.construction ? "construction" : ""} ${tool === "linear-dimension" && entity.type === "line" ? "constraint-selectable" : ""}`} onContextMenu={(event) => openConstraintShortcut(event, entity)} onPointerDown={(event) => { if ((tool === "horizontal-constraint" || tool === "vertical-constraint") && entity.type === "line") { event.stopPropagation(); applyAxisConstraint(entity.id, tool === "horizontal-constraint" ? "Horizontal" : "Vertical"); return; } if (tool === "linear-dimension" && entity.type === "line") { event.stopPropagation(); const now = performance.now(); const previous = lineClickRef.current; if (previous?.entityId === entity.id && now - previous.at <= 500) { event.preventDefault(); lineClickRef.current = null; createLineLengthDimension(entity); return; } lineClickRef.current = { entityId: entity.id, at: now }; chooseDimensionReference({ kind: "line", entityId: entity.id }, pointFromEvent(event)); return; } if (tool !== "select" && tool !== "trim") return; event.stopPropagation(); if (tool === "trim") { const replacements = trimEntityAtPoint(entity, pointFromEvent(event), entities); commit(entities.flatMap((item) => item.id === entity.id ? replacements : [item])); setSelected(null); return; } if (selectedEntityIds.includes(entity.id) && selectionCount > 1) { beginSelectionDrag(event); return; } setSelected(entity.id); setSelectedAxisConstraint(null); setSelectedConstraintId(null); setSelectedDimensionKeys([]); setTool("select"); }}>
         {entity.type === "line" && <line className={hoveredReferenceId === referenceId || referenceChosen ? "reference-highlighted" : ""} x1={entity.a.x} y1={entity.a.y} x2={entity.b.x} y2={entity.b.y} />}
         {entity.type === "circle" && <circle cx={entity.c.x} cy={entity.c.y} r={entity.r} />}
         {entity.type === "ellipse" && <ellipse cx={entity.c.x} cy={entity.c.y} rx={entity.rx} ry={entity.ry} />}
@@ -570,11 +606,13 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
       {linearPreview && <g className="linear-constraint preview"><line className="constraint-extension" x1={linearPreview.first.x} y1={linearPreview.first.y} x2={linearPreview.dimensionFirst.x} y2={linearPreview.dimensionFirst.y}/><line className="constraint-extension" x1={linearPreview.second.x} y1={linearPreview.second.y} x2={linearPreview.dimensionSecond.x} y2={linearPreview.dimensionSecond.y}/><line className="constraint-measure" x1={linearPreview.dimensionFirst.x} y1={linearPreview.dimensionFirst.y} x2={linearPreview.dimensionSecond.x} y2={linearPreview.dimensionSecond.y}/><path className="constraint-arrow" d={dimensionArrowPath(linearPreview.dimensionFirst, linearPreview.dimensionSecond, dimensionScale)}/><g className="constraint-preview-label" transform={`translate(${linearPreview.label.x} ${linearPreview.label.y}) scale(${dimensionLabelScale})`}><rect x="-32" y="-12" width="64" height="24" rx="4"/><text y="-2" textAnchor="middle">{formatLength(linearPreview.value, unitSystem)}</text><text y="7" textAnchor="middle" className="orientation-hint">{dimensionOrientation} · Tab</text></g></g>}
       {visibleDimensions.map((dimension) => { const position = dimensionPosition(dimension); const text = dimensionTextFor(dimension); const editableValue = fromMillimeters(dimension.value, unitSystem); const labelWidth = Math.max(36, text.length * 4.3 + 13); const moved = dimensionOffsets[dimension.key] && (Math.abs(dimensionOffsets[dimension.key].x) > 0.1 || Math.abs(dimensionOffsets[dimension.key].y) > 0.1); return <g key={dimension.key} className={`dimension-annotation ${selectedDimensionKeys.includes(dimension.key) ? "selected" : ""}`}>{moved && <line className="dimension-leader" x1={dimension.anchor.x} y1={dimension.anchor.y} x2={position.x} y2={position.y}/>}<g className="sketch-dimension" role="button" tabIndex={0} aria-label={`Edit dimension ${text}`} transform={`translate(${position.x} ${position.y}) scale(${dimensionLabelScale})`} onPointerDown={(event) => beginDimensionDrag(event, dimension)} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); setTool("select"); setEditingConstraintId(null); setSelectedConstraintId(null); setEditingDimension(dimension); setDimensionValue(String(Number(editableValue.toFixed(4)))); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); setEditingConstraintId(null); setSelectedConstraintId(null); setEditingDimension(dimension); setDimensionValue(String(Number(editableValue.toFixed(4)))); } }}><line x1={-labelWidth / 2 - 5} y1="0" x2={labelWidth / 2 + 5} y2="0"/><path d={`M${-labelWidth / 2 - 5} 0 l4 -2 v4z M${labelWidth / 2 + 5} 0 l-4 -2 v4z`}/><rect x={-labelWidth / 2} y="-7" width={labelWidth} height="14" rx="3"/><text textAnchor="middle" dominantBaseline="central">{text}</text></g></g>; })}
       {selectionMarquee && marqueeBox && <rect className={`sketch-selection-box ${selectionMarquee.current.x < selectionMarquee.start.x ? "crossing" : "window"}`} x={marqueeBox.left} y={marqueeBox.top} width={marqueeBox.right - marqueeBox.left} height={marqueeBox.bottom - marqueeBox.top}/>}
-      {entities.flatMap((entity) => entity.relations?.map((relation, index) => ({ entity, relation, index })) ?? []).map(({ entity, relation, index }) => { const point = entity.type === "line" ? midpoint(entity.a, entity.b) : entity.type === "circle" || entity.type === "ellipse" ? entity.c : entity.type === "arc" ? entity.through : entity.points[0]; return <text key={`${entity.id}-${index}`} x={point.x + 5 + index * 8} y={point.y + 9} className="relation-glyph">{relation === "Horizontal" ? "H" : relation === "Vertical" ? "V" : relation === "Coincident" ? "●" : relation === "Concentric" ? "◎" : "◇"}</text>; })}
+      {entities.filter((entity): entity is Extract<SketchEntity, { type: "line" }> => entity.type === "line" && Boolean(entity.axisConstraint)).map((entity) => { const relation = entity.axisConstraint!; const center = midpoint(entity.a, entity.b); const dx = entity.b.x - entity.a.x; const dy = entity.b.y - entity.a.y; const length = Math.max(distance(entity.a, entity.b), 0.001); const position = { x: center.x - dy / length * 10 / safeZoom, y: center.y + dx / length * 10 / safeZoom }; const selectedRelation = selectedAxisConstraint?.entityId === entity.id && selectedAxisConstraint.relation === relation; return <g key={`locked-${entity.id}`} role="button" tabIndex={0} aria-label={`${relation} constraint; select and press Delete to remove`} transform={`translate(${position.x} ${position.y}) scale(${1 / safeZoom})`} className={`locked-axis-constraint ${selectedRelation ? "selected" : ""}`} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); clearSelection(); setSelectedAxisConstraint({ entityId: entity.id, relation }); setTool("select"); }}><rect x="-5" y="-5" width="10" height="10" rx="2"/><text textAnchor="middle" dominantBaseline="central">{relation === "Horizontal" ? "H" : "V"}</text></g>; })}
+      {entities.flatMap((entity) => entity.relations?.map((relation, index) => ({ entity, relation, index })).filter(({ relation }) => entity.axisConstraint !== relation && sketchRelationIsSatisfied(entity, relation)) ?? []).map(({ entity, relation, index }) => { const point = entity.type === "line" ? midpoint(entity.a, entity.b) : entity.type === "circle" || entity.type === "ellipse" ? entity.c : entity.type === "arc" ? entity.through : entity.points[0]; return <text key={`${entity.id}-${index}`} x={point.x + 5 + index * 8} y={point.y + 9} className="relation-glyph">{relation === "Horizontal" ? "H" : relation === "Vertical" ? "V" : relation === "Coincident" ? "●" : relation === "Concentric" ? "◎" : "◇"}</text>; })}
       {snap && <g className={`snap-marker ${snap.kind}`}><circle cx={snap.point.x} cy={snap.point.y} r={gridSquareSize / 2}/><text x={snap.point.x + 7} y={snap.point.y - 7}>{snap.kind}</text></g>}
       {editingDimension && editingDimensionPosition && <foreignObject x="-36" y="-16" width="72" height="32" transform={`translate(${editingDimensionPosition.x} ${editingDimensionPosition.y}) scale(${dimensionLabelScale})`}><input ref={dimensionInputRef} className="dimension-editor" aria-label="Dimension value" value={dimensionValue} onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onChange={(event) => setDimensionValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") applyDimension(); if (event.key === "Escape") setEditingDimension(null); }} onBlur={applyDimension} /></foreignObject>}
       {editingConstraint && editingConstraintPosition && <foreignObject x="-38" y="-16" width="76" height="32" transform={`translate(${editingConstraintPosition.x} ${editingConstraintPosition.y}) scale(${dimensionLabelScale})`}><input ref={dimensionInputRef} className="dimension-editor constraint-editor" aria-label="Linear constraint value" value={dimensionValue} onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onChange={(event) => setDimensionValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") applyConstraintDimension(); if (event.key === "Escape") setEditingConstraintId(null); }} onBlur={applyConstraintDimension} /></foreignObject>}
     </svg>
+    {constraintShortcut && <div className="sketch-constraint-shortcut" style={{ left: constraintShortcut.x, top: constraintShortcut.y }} role="menu" aria-label="Suggested line constraint"><button role="menuitem" title={`Apply ${constraintShortcut.relation.toLowerCase()} constraint`} onClick={() => applyAxisConstraint(constraintShortcut.entityId, constraintShortcut.relation)}><span className={`axis-constraint-icon ${constraintShortcut.relation.toLowerCase()}`} />{constraintShortcut.relation}</button></div>}
     <div className={`sketch-status ${hasConstraintConflict ? "over-defined" : ""}`}><span>{viewRotated ? "Sketch view rotated · middle-drag orbit · right-drag pan · wheel zoom · Snap normal to edit" : tool === "linear-dimension" ? dimensionReferences.length === 0 ? "Linear dimension · select references · double-click a line for its segment length" : dimensionReferences.length === 1 ? dimensionMessage ?? "Linear dimension · select the second reference · line references measure perpendicular distance" : `Linear dimension · move to position · Tab cycles ${dimensionOptions.join(" / ")} · click to place` : "Wheel zoom · right-drag pan · middle-drag orbit · " + (tool === "select" ? "left-drag selection box · drag any selected item to move the group · Delete removes selection" : tool === "spline" ? "click control points · Enter or double-click to finish" : `${tool}: click to place points · Esc to finish`)}</span><span>{selectionCount ? `${selectionCount} selected` : activeEntity ? `${activeEntity.type} · ${activeEntity.relations?.join(", ")}` : `${entities.length} entities · ${constraints.length} constraints`}</span><span>{hasConstraintConflict ? "Over defined" : viewRotated ? "3D inspection" : snapEnabled ? "Snap on" : "Free drag"} <i /></span></div>
   </div>;
 }

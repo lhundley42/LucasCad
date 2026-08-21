@@ -112,6 +112,22 @@ export function constraintSupersedesSegmentDimension(constraint: LinearDimension
   return Math.abs(entity.a.x - entity.b.x) < 0.001;
 }
 
+export function constraintSupersedesOrthogonalProfileDimension(constraint: LinearDimensionConstraint, entity: SketchEntity, entities: SketchEntity[]): boolean {
+  if (constraintSupersedesSegmentDimension(constraint, entity)) return true;
+  if (entity.type !== "line" || !entity.axisConstraint) return false;
+  const driven = entities.find((candidate) => constraintSupersedesSegmentDimension(constraint, candidate));
+  if (!driven || driven.type !== "line" || driven.axisConstraint !== entity.axisConstraint) return false;
+  const perpendicular = entity.axisConstraint === "Horizontal" ? "Vertical" : "Horizontal";
+  const connectors = entities.filter((candidate): candidate is Extract<SketchEntity, { type: "line" }> => candidate.type === "line" && candidate.id !== entity.id && candidate.id !== driven.id && candidate.axisConstraint === perpendicular);
+  const joins = (connector: Extract<SketchEntity, { type: "line" }>, first: Point, second: Point) => (
+    (distance(connector.a, first) < 0.001 && distance(connector.b, second) < 0.001)
+    || (distance(connector.b, first) < 0.001 && distance(connector.a, second) < 0.001)
+  );
+  const directPair = connectors.some((first) => joins(first, driven.a, entity.a)) && connectors.some((second) => joins(second, driven.b, entity.b));
+  const crossedPair = connectors.some((first) => joins(first, driven.a, entity.b)) && connectors.some((second) => joins(second, driven.b, entity.a));
+  return directPair || crossedPair;
+}
+
 function nodesShareLine(first: SketchReference, second: SketchReference, entities: SketchEntity[]) {
   if (first.kind !== "node" || second.kind !== "node") return false;
   const firstPoint = referencePoint(first, entities); const secondPoint = referencePoint(second, entities);

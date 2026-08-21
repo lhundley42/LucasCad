@@ -1,6 +1,6 @@
 export type Point = { x: number; y: number };
 export type SelectionBox = { left: number; right: number; top: number; bottom: number };
-type BaseEntity = { id: string; construction?: boolean; relations?: string[] };
+type BaseEntity = { id: string; construction?: boolean; relations?: string[]; axisConstraint?: "Horizontal" | "Vertical" };
 export type SketchEntity =
   | (BaseEntity & { type: "line"; a: Point; b: Point })
   | (BaseEntity & { type: "circle"; c: Point; r: number })
@@ -14,6 +14,13 @@ let trimSequence = 0;
 
 export const distance = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
 export const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+export function sketchRelationIsSatisfied(entity: SketchEntity, relation: string): boolean {
+  if (relation !== "Horizontal" && relation !== "Vertical") return true;
+  if (entity.type !== "line") return false;
+  return relation === "Horizontal"
+    ? Math.abs(entity.a.y - entity.b.y) <= EPSILON
+    : Math.abs(entity.a.x - entity.b.x) <= EPSILON;
+}
 export const normalizedSelectionBox = (start: Point, end: Point): SelectionBox => ({
   left: Math.min(start.x, end.x), right: Math.max(start.x, end.x),
   top: Math.min(start.y, end.y), bottom: Math.max(start.y, end.y),
@@ -108,6 +115,20 @@ function lineCircleIntersections(a: Point, b: Point, center: Point, radius: numb
     .map((t) => ({ x: a.x + dx * t, y: a.y + dy * t }));
 }
 
+function lineEllipseIntersections(a: Point, b: Point, center: Point, rx: number, ry: number): Point[] {
+  const ax = (a.x - center.x) / rx; const ay = (a.y - center.y) / ry;
+  const dx = (b.x - a.x) / rx; const dy = (b.y - a.y) / ry;
+  const aa = dx * dx + dy * dy;
+  if (aa < EPSILON) return [];
+  const bb = 2 * (ax * dx + ay * dy); const cc = ax * ax + ay * ay - 1;
+  const discriminant = bb * bb - 4 * aa * cc;
+  if (discriminant < -EPSILON) return [];
+  const root = Math.sqrt(Math.max(0, discriminant));
+  return [(-bb - root) / (2 * aa), (-bb + root) / (2 * aa)]
+    .filter((t, index, values) => t >= -EPSILON && t <= 1 + EPSILON && (index === 0 || Math.abs(t - values[0]) > EPSILON))
+    .map((t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }));
+}
+
 function uniquePoints(points: Point[], tolerance = 0.04): Point[] {
   return points.filter((point, index) => points.findIndex((candidate) => distance(point, candidate) < tolerance) === index);
 }
@@ -116,6 +137,12 @@ function intersectionsWithCircle(circle: Extract<SketchEntity, { type: "circle" 
   if (other.type === "line") return lineCircleIntersections(other.a, other.b, circle.c, circle.r);
   const samples = sampleSketchEntity(other);
   return uniquePoints(samples.slice(1).flatMap((point, index) => lineCircleIntersections(samples[index], point, circle.c, circle.r)));
+}
+
+function intersectionsWithEllipse(ellipse: Extract<SketchEntity, { type: "ellipse" }>, other: SketchEntity): Point[] {
+  if (other.type === "line") return lineEllipseIntersections(other.a, other.b, ellipse.c, ellipse.rx, ellipse.ry);
+  const samples = sampleSketchEntity(other);
+  return uniquePoints(samples.slice(1).flatMap((point, index) => lineEllipseIntersections(samples[index], point, ellipse.c, ellipse.rx, ellipse.ry)));
 }
 
 function intersectionsWithLine(line: Extract<SketchEntity, { type: "line" }>, other: SketchEntity): Point[] {
@@ -141,6 +168,27 @@ function trimCircle(target: Extract<SketchEntity, { type: "circle" }>, click: Po
   }));
 }
 
+function trimEllipse(target: Extract<SketchEntity, { type: "ellipse" }>, click: Point, others: SketchEntity[]): SketchEntity[] {
+  const intersections = uniquePoints(others.flatMap((entity) => intersectionsWithEllipse(target, entity)))
+    .map((point) => normalizedAngle(Math.atan2((point.y - target.c.y) / target.ry, (point.x - target.c.x) / target.rx)))
+    .sort((a, b) => a - b);
+  if (intersections.length < 2) return [target];
+  const clickAngle = normalizedAngle(Math.atan2((click.y - target.c.y) / target.ry, (click.x - target.c.x) / target.rx));
+  const intervals = intersections.map((start, index) => ({ start, end: index === intersections.length - 1 ? intersections[0] + TAU : intersections[index + 1] }));
+  const removed = intervals.findIndex(({ start, end }) => {
+    const adjusted = clickAngle < start ? clickAngle + TAU : clickAngle;
+    return adjusted >= start - EPSILON && adjusted <= end + EPSILON;
+  });
+  return intervals.filter((_, index) => index !== removed).map(({ start, end }) => {
+    const count = Math.max(8, Math.ceil((end - start) / TAU * 96));
+    const points = Array.from({ length: count + 1 }, (_, index) => {
+      const angle = start + (end - start) * index / count;
+      return { x: target.c.x + Math.cos(angle) * target.rx, y: target.c.y + Math.sin(angle) * target.ry };
+    });
+    return { id: trimId(target.id), type: "spline" as const, construction: target.construction, points, relations: ["Trimmed"] };
+  });
+}
+
 function trimLine(target: Extract<SketchEntity, { type: "line" }>, click: Point, others: SketchEntity[]): SketchEntity[] {
   const dx = target.b.x - target.a.x; const dy = target.b.y - target.a.y; const lengthSquared = dx * dx + dy * dy;
   if (lengthSquared < EPSILON) return [];
@@ -161,6 +209,7 @@ function trimLine(target: Extract<SketchEntity, { type: "line" }>, click: Point,
 export function trimEntityAtPoint(target: SketchEntity, click: Point, entities: SketchEntity[]): SketchEntity[] {
   const others = entities.filter((entity) => entity.id !== target.id);
   if (target.type === "circle") return trimCircle(target, click, others);
+  if (target.type === "ellipse") return trimEllipse(target, click, others);
   if (target.type === "line") return trimLine(target, click, others);
-  return [];
+  return [target];
 }

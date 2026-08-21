@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  constraintSupersedesOrthogonalProfileDimension,
   constraintSupersedesSegmentDimension,
   controlPointsForEntity,
   cycleLinearOrientation,
@@ -158,4 +159,17 @@ test("the red and green sketch axes can be used as fixed dimension references", 
   assert.equal(linearDimensionValue(greenAxis, right, "horizontal", triangle), 30);
   assert.deepEqual(defaultLinearDimensionPosition(greenAxis, right, "horizontal", triangle, 10), { x: 15, y: -10 });
   assert.deepEqual(defaultLinearDimensionPosition(redAxis, top, "vertical", triangle, 10), { x: -10, y: -25 });
+});
+
+test("one driven side suppresses both redundant segment labels in a constrained rectangle", () => {
+  const rectangle = [
+    { id: "top", type: "line", a: { x: 0, y: 0 }, b: { x: 50, y: 0 }, axisConstraint: "Horizontal" },
+    { id: "right", type: "line", a: { x: 50, y: 0 }, b: { x: 50, y: 30 }, axisConstraint: "Vertical" },
+    { id: "bottom", type: "line", a: { x: 50, y: 30 }, b: { x: 0, y: 30 }, axisConstraint: "Horizontal" },
+    { id: "left", type: "line", a: { x: 0, y: 30 }, b: { x: 0, y: 0 }, axisConstraint: "Vertical" },
+  ];
+  const width = { id: "width", type: "linear", first: { kind: "node", entityId: "top", handle: "a" }, second: { kind: "node", entityId: "top", handle: "b" }, orientation: "horizontal", position: { x: 25, y: -10 }, value: 50 };
+  assert.equal(constraintSupersedesOrthogonalProfileDimension(width, rectangle[0], rectangle), true);
+  assert.equal(constraintSupersedesOrthogonalProfileDimension(width, rectangle[2], rectangle), true);
+  assert.equal(constraintSupersedesOrthogonalProfileDimension(width, rectangle[1], rectangle), false);
 });

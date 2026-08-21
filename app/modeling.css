@@ -193,6 +193,20 @@
   line-height: 1;
 }
 
+.axis-constraint-icon { display:inline-block; width:14px; height:14px; position:relative; }
+.axis-constraint-icon::after { content:""; position:absolute; inset:6px 1px auto; border-top:2px solid #71d6f7; }
+.axis-constraint-icon.vertical::after { inset:1px auto 1px 6px; border-top:0; border-left:2px solid #71d6f7; }
+.locked-axis-constraint { cursor:pointer; outline:none; }
+.locked-axis-constraint rect { fill:#241634; stroke:#b467ee; stroke-width:1px; vector-effect:non-scaling-stroke; }
+.locked-axis-constraint text { fill:#d69cff; font:bold 7px Segoe UI,Arial,sans-serif; pointer-events:none; }
+.locked-axis-constraint:hover rect,
+.locked-axis-constraint.selected rect { fill:#49321b; stroke:#ffd56f; stroke-width:1.5px; }
+.locked-axis-constraint:hover text,
+.locked-axis-constraint.selected text { fill:#ffd56f; }
+.sketch-constraint-shortcut { position:fixed; z-index:80; transform:translate(6px,6px); padding:3px; border:1px solid #3b5263; border-radius:5px; background:#111a22; box-shadow:0 6px 18px #0009; }
+.sketch-constraint-shortcut button { display:flex; align-items:center; gap:5px; padding:4px 7px; border:0; border-radius:3px; background:transparent; color:#c9d7e2; font-size:10px; cursor:pointer; }
+.sketch-constraint-shortcut button:hover { background:#243746; color:#fff; }
+
 .sketch-canvas.tool-linear-dimension {
   cursor: crosshair;
 }
@@ -286,7 +300,6 @@
   pointer-events: none;
 }
 
-.sketch-canvas.tool-linear-dimension .linear-constraint:not(.preview),
 .sketch-canvas.tool-linear-dimension .relation-glyph {
   pointer-events: none;
 }
