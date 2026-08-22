@@ -10,7 +10,7 @@ $env:Path = "$nodeBin;$env:Path"
 $api = Start-Process -FilePath $python -ArgumentList "-m", "uvicorn", "backend.server:app", "--host", "127.0.0.1", "--port", "8000", "--reload", "--reload-dir", "backend" -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
 try {
     Start-Sleep -Milliseconds 900
-    & $pnpm exec vinext dev
+    & $pnpm exec vinext dev --port 3001
 } finally {
     if (-not $api.HasExited) { Stop-Process -Id $api.Id }
 }

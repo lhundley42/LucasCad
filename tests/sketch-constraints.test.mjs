@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  angularDimensionLayout,
+  angularDimensionValue,
   constraintSupersedesOrthogonalProfileDimension,
   constraintSupersedesSegmentDimension,
   controlPointsForEntity,
@@ -12,9 +14,24 @@ import {
   linearDimensionValue,
   linearOrientationOptions,
   nonOverlappingReferenceHitRadius,
+  preferredAxisOrSketchLineTarget,
   targetPointForLinearValue,
   validLinearDimensionPair,
 } from "../app/components/sketchConstraints.ts";
+
+test("the closest visible target wins when a sketch line overlaps an axis hit area", () => {
+  const horizontal = { id: "bottom", type: "line", a: { x: -30, y: -8 }, b: { x: 30, y: -8 } };
+  assert.deepEqual(preferredAxisOrSketchLineTarget({ x: 10, y: -8 }, "x", [horizontal], 14), { kind: "line", entityId: "bottom" });
+  assert.deepEqual(preferredAxisOrSketchLineTarget({ x: 10, y: 0 }, "x", [horizontal], 14), { kind: "axis", axis: "x" });
+  assert.deepEqual(preferredAxisOrSketchLineTarget({ x: 10, y: -3 }, "x", [horizontal], 14), { kind: "axis", axis: "x" });
+  assert.deepEqual(preferredAxisOrSketchLineTarget({ x: 10, y: -5 }, "x", [horizontal], 14), { kind: "line", entityId: "bottom" });
+});
+
+test("the same proximity rule works beside the green vertical axis", () => {
+  const vertical = { id: "left", type: "line", a: { x: 8, y: -30 }, b: { x: 8, y: 30 } };
+  assert.deepEqual(preferredAxisOrSketchLineTarget({ x: 8, y: 10 }, "y", [vertical], 14), { kind: "line", entityId: "left" });
+  assert.deepEqual(preferredAxisOrSketchLineTarget({ x: 0, y: 10 }, "y", [vertical], 14), { kind: "axis", axis: "y" });
+});
 
 const triangle = [
   { id: "base", type: "line", a: { x: -30, y: 0 }, b: { x: 30, y: 0 } },
@@ -159,6 +176,23 @@ test("the red and green sketch axes can be used as fixed dimension references", 
   assert.equal(linearDimensionValue(greenAxis, right, "horizontal", triangle), 30);
   assert.deepEqual(defaultLinearDimensionPosition(greenAxis, right, "horizontal", triangle, 10), { x: 15, y: -10 });
   assert.deepEqual(defaultLinearDimensionPosition(redAxis, top, "vertical", triangle, 10), { x: -10, y: -25 });
+});
+
+test("angular dimensions measure the placed sector between non-parallel lines", () => {
+  const diagonalEnd = { x: 20, y: Math.sqrt(1200) };
+  const geometry = [
+    { id: "horizontal", type: "line", a: { x: 0, y: 0 }, b: { x: 40, y: 0 } },
+    { id: "diagonal", type: "line", a: { x: 0, y: 0 }, b: diagonalEnd },
+  ];
+  const horizontal = { kind: "line", entityId: "horizontal" };
+  const diagonal = { kind: "line", entityId: "diagonal" };
+  assert.ok(Math.abs(angularDimensionValue(horizontal, diagonal, { x: 12, y: 8 }, geometry) - 60) < 1e-9);
+  assert.ok(Math.abs(angularDimensionValue(horizontal, diagonal, { x: -12, y: 8 }, geometry) - 120) < 1e-9);
+  const layout = angularDimensionLayout(horizontal, diagonal, { x: 10, y: 10 }, geometry);
+  assert.deepEqual(layout.vertex, { x: 0, y: 0 });
+  assert.equal(layout.largeArc, false);
+  assert.equal(layout.sweep, true);
+  assert.ok(Math.abs(layout.value - 60) < 1e-9);
 });
 
 test("one driven side suppresses both redundant segment labels in a constrained rectangle", () => {

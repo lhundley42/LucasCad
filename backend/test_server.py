@@ -79,6 +79,38 @@ def test_triangle_endpoint_gaps_inside_profile_tolerance_are_healed():
     assert result.json()["properties"]["solidCount"] == 1
 
 
+def test_closed_spline_ignores_duplicate_double_click_endpoint():
+    spline = {
+        "id": "closed-spline",
+        "type": "spline",
+        "points": [
+            {"x": -20, "y": 0}, {"x": -5, "y": 15}, {"x": 15, "y": 8},
+            {"x": 20, "y": 0}, {"x": 8, "y": -14}, {"x": -12, "y": -10},
+            {"x": -20, "y": 0}, {"x": -20, "y": 0},
+        ],
+    }
+    validation = client.post("/api/sketch/validate", json={"entities": [spline]})
+    assert validation.status_code == 200
+    assert validation.json()["closed"] is True
+    extrusion = client.post("/api/model", json={"operation": "extrude", "distance": 5, "entities": [spline]})
+    assert extrusion.status_code == 200, extrusion.text
+
+
+def test_closed_spline_tangent_handles_drive_extruded_curve():
+    points = [{"x": -10, "y": 0}, {"x": 0, "y": 12}, {"x": 10, "y": 0}, {"x": 0, "y": -12}, {"x": -10, "y": 0}]
+    handles = [
+        {"in": {"x": -10, "y": -5}, "out": {"x": -10, "y": 5}},
+        {"in": {"x": -5, "y": 12}, "out": {"x": 5, "y": 12}},
+        {"in": {"x": 10, "y": 5}, "out": {"x": 10, "y": -5}},
+        {"in": {"x": 5, "y": -12}, "out": {"x": -5, "y": -12}},
+        {"in": {"x": -10, "y": -5}, "out": {"x": -10, "y": 5}},
+    ]
+    spline = {"id": "handled-spline", "type": "spline", "points": points, "handles": handles}
+    result = client.post("/api/model", json={"operation": "extrude", "distance": 4, "entities": [spline]})
+    assert result.status_code == 200, result.text
+    assert result.json()["properties"]["solidCount"] == 1
+
+
 def test_symmetric_and_bidirectional_extrusions_span_both_sketch_directions():
     sketch = {"id": "profile", "plane": "XY", "entities": rectangle(-5, -4, 5, 4)}
     symmetric = client.post("/api/document", json={

@@ -25,6 +25,25 @@ export type LinearDimensionConstraint = {
   conflicted?: boolean;
 };
 
+export type AngularDimensionConstraint = {
+  id: string;
+  type: "angular";
+  first: Extract<SketchReference, { kind: "line" | "external-line" }>;
+  second: Extract<SketchReference, { kind: "line" | "external-line" }>;
+  position: Point;
+  value: number;
+  conflicted?: boolean;
+};
+
+export type MirrorConstraint = {
+  id: string;
+  type: "mirror";
+  axisEntityId: string;
+  pairs: { sourceId: string; mirroredId: string }[];
+};
+
+export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | MirrorConstraint;
+
 export type DimensionLayout = {
   first: Point;
   second: Point;
@@ -33,6 +52,36 @@ export type DimensionLayout = {
   label: Point;
   value: number;
 };
+
+export type AngularDimensionLayout = {
+  vertex: Point;
+  firstRay: Point;
+  secondRay: Point;
+  label: Point;
+  radius: number;
+  largeArc: boolean;
+  sweep: boolean;
+  value: number;
+};
+
+export type AxisOrSketchLineTarget = { kind: "axis"; axis: "x" | "y" } | { kind: "line"; entityId: string };
+
+function pointToSegmentDistance(point: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x; const dy = b.y - a.y; const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared < 1e-12) return distance(point, a);
+  const amount = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared));
+  return distance(point, { x: a.x + dx * amount, y: a.y + dy * amount });
+}
+
+export function preferredAxisOrSketchLineTarget(point: Point, axis: "x" | "y", entities: SketchEntity[], lineHitTolerance: number): AxisOrSketchLineTarget {
+  const axisDistance = axis === "x" ? Math.abs(point.y) : Math.abs(point.x);
+  const nearestLine = entities
+    .filter((entity): entity is Extract<SketchEntity, { type: "line" }> => entity.type === "line")
+    .map((entity) => ({ entityId: entity.id, distance: pointToSegmentDistance(point, entity.a, entity.b) }))
+    .filter((candidate) => candidate.distance <= lineHitTolerance)
+    .sort((first, second) => first.distance - second.distance)[0];
+  return nearestLine && nearestLine.distance <= axisDistance + 1e-6 ? { kind: "line", entityId: nearestLine.entityId } : { kind: "axis", axis };
+}
 
 export function controlPointsForEntity(entity: SketchEntity): { handle: string; point: Point }[] {
   if (entity.type === "line") return [{ handle: "a", point: entity.a }, { handle: "midpoint", point: midpoint(entity.a, entity.b) }, { handle: "b", point: entity.b }];
@@ -43,7 +92,7 @@ export function controlPointsForEntity(entity: SketchEntity): { handle: string; 
     { handle: "top", point: { x: entity.c.x, y: entity.c.y - entity.r } },
     { handle: "bottom", point: { x: entity.c.x, y: entity.c.y + entity.r } },
   ];
-  if (entity.type === "ellipse") return [{ handle: "center", point: entity.c }, { handle: "major", point: { x: entity.c.x + entity.rx, y: entity.c.y } }, { handle: "minor", point: { x: entity.c.x, y: entity.c.y + entity.ry } }];
+  if (entity.type === "ellipse") { const angle = entity.rotation ?? 0; return [{ handle: "center", point: entity.c }, { handle: "major", point: { x: entity.c.x + entity.rx * Math.cos(angle), y: entity.c.y + entity.rx * Math.sin(angle) } }, { handle: "minor", point: { x: entity.c.x - entity.ry * Math.sin(angle), y: entity.c.y + entity.ry * Math.cos(angle) } }]; }
   if (entity.type === "arc") return [{ handle: "a", point: entity.a }, { handle: "b", point: entity.b }, { handle: "through", point: entity.through }];
   return entity.points.map((point, index) => ({ handle: `point-${index}`, point }));
 }
@@ -68,7 +117,7 @@ export function referencePoint(reference: SketchReference, entities: SketchEntit
   return controlPointsForEntity(entity).find((control) => control.handle === reference.handle)?.point ?? controlPointsForEntity(entity)[0]?.point ?? { x: 0, y: 0 };
 }
 
-function lineFor(reference: SketchReference, entities: SketchEntity[]) {
+export function lineFor(reference: SketchReference, entities: SketchEntity[]) {
   if (reference.kind === "external-line") return { a: reference.a, b: reference.b };
   if (reference.kind !== "line") return null;
   const entity = entities.find((candidate) => candidate.id === reference.entityId);
@@ -110,6 +159,89 @@ export function constraintSupersedesSegmentDimension(constraint: LinearDimension
   if (constraint.orientation === "aligned") return true;
   if (constraint.orientation === "horizontal") return Math.abs(entity.a.y - entity.b.y) < 0.001;
   return Math.abs(entity.a.x - entity.b.x) < 0.001;
+}
+
+function infiniteLineIntersection(first: { a: Point; b: Point }, second: { a: Point; b: Point }): Point | null {
+  const denominator = (first.b.x - first.a.x) * (second.b.y - second.a.y) - (first.b.y - first.a.y) * (second.b.x - second.a.x);
+  if (Math.abs(denominator) < 1e-10) return null;
+  const amount = ((second.a.x - first.a.x) * (second.b.y - second.a.y) - (second.a.y - first.a.y) * (second.b.x - second.a.x)) / denominator;
+  return { x: first.a.x + (first.b.x - first.a.x) * amount, y: first.a.y + (first.b.y - first.a.y) * amount };
+}
+
+const normalizedAngle = (angle: number) => ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+const degrees = (radians: number) => radians * 180 / Math.PI;
+const radians = (degreesValue: number) => degreesValue * Math.PI / 180;
+
+function vectorAngle(vector: Point): number {
+  return Math.atan2(vector.y, vector.x);
+}
+
+function lineDirectionAwayFromVertex(line: { a: Point; b: Point }, vertex: Point, placement: Point): Point {
+  const aDistance = distance(line.a, vertex);
+  const bDistance = distance(line.b, vertex);
+  let direction = aDistance >= bDistance ? { x: line.a.x - vertex.x, y: line.a.y - vertex.y } : { x: line.b.x - vertex.x, y: line.b.y - vertex.y };
+  if (Math.hypot(direction.x, direction.y) < 1e-9) direction = { x: line.b.x - line.a.x, y: line.b.y - line.a.y };
+  const opposite = { x: -direction.x, y: -direction.y };
+  const placementVector = { x: placement.x - vertex.x, y: placement.y - vertex.y };
+  return direction.x * placementVector.x + direction.y * placementVector.y >= opposite.x * placementVector.x + opposite.y * placementVector.y ? direction : opposite;
+}
+
+export function angularDimensionValue(first: SketchReference, second: SketchReference, placement: Point, entities: SketchEntity[]): number {
+  const firstLine = lineFor(first, entities); const secondLine = lineFor(second, entities);
+  if (!firstLine || !secondLine) return 0;
+  const vertex = infiniteLineIntersection(firstLine, secondLine) ?? midpoint(referencePoint(first, entities), referencePoint(second, entities));
+  const firstDirection = lineDirectionAwayFromVertex(firstLine, vertex, placement);
+  const secondDirection = lineDirectionAwayFromVertex(secondLine, vertex, placement);
+  const start = vectorAngle(firstDirection); const end = vectorAngle(secondDirection);
+  const ccw = normalizedAngle(end - start);
+  const cw = normalizedAngle(start - end);
+  const placementAngle = normalizedAngle(vectorAngle({ x: placement.x - vertex.x, y: placement.y - vertex.y }) - start);
+  return placementAngle <= ccw ? degrees(ccw) : degrees(cw);
+}
+
+export function angularDimensionLayout(first: SketchReference, second: SketchReference, position: Point, entities: SketchEntity[]): AngularDimensionLayout {
+  const firstLine = lineFor(first, entities); const secondLine = lineFor(second, entities);
+  if (!firstLine || !secondLine) return { vertex: position, firstRay: position, secondRay: position, label: position, radius: 0, largeArc: false, sweep: true, value: 0 };
+  const vertex = infiniteLineIntersection(firstLine, secondLine) ?? midpoint(referencePoint(first, entities), referencePoint(second, entities));
+  const radius = Math.max(10, distance(vertex, position));
+  const firstDirection = lineDirectionAwayFromVertex(firstLine, vertex, position);
+  const secondDirection = lineDirectionAwayFromVertex(secondLine, vertex, position);
+  const start = vectorAngle(firstDirection); const end = vectorAngle(secondDirection);
+  const ccw = normalizedAngle(end - start);
+  const cw = normalizedAngle(start - end);
+  const placementAngle = normalizedAngle(vectorAngle({ x: position.x - vertex.x, y: position.y - vertex.y }) - start);
+  const useCcw = placementAngle <= ccw;
+  const span = useCcw ? ccw : cw;
+  const firstAngle = useCcw ? start : end;
+  const secondAngle = useCcw ? end : start;
+  return {
+    vertex,
+    firstRay: { x: vertex.x + Math.cos(firstAngle) * radius, y: vertex.y + Math.sin(firstAngle) * radius },
+    secondRay: { x: vertex.x + Math.cos(secondAngle) * radius, y: vertex.y + Math.sin(secondAngle) * radius },
+    label: position,
+    radius,
+    largeArc: span > Math.PI,
+    sweep: useCcw,
+    value: degrees(span),
+  };
+}
+
+export function targetPointForAngularValue(firstLine: { a: Point; b: Point }, secondLine: { a: Point; b: Point }, placement: Point, valueDegrees: number): { pivot: Point; target: Point; movingHandle: "a" | "b" } | null {
+  const vertex = infiniteLineIntersection(firstLine, secondLine) ?? midpoint(firstLine.a, secondLine.a);
+  const firstDirection = lineDirectionAwayFromVertex(firstLine, vertex, placement);
+  const secondDirection = lineDirectionAwayFromVertex(secondLine, vertex, placement);
+  const firstAngle = vectorAngle(firstDirection);
+  const secondAngle = vectorAngle(secondDirection);
+  const currentCcw = normalizedAngle(secondAngle - firstAngle);
+  const currentCw = normalizedAngle(firstAngle - secondAngle);
+  const placementAngle = normalizedAngle(vectorAngle({ x: placement.x - vertex.x, y: placement.y - vertex.y }) - firstAngle);
+  const sign = placementAngle <= currentCcw ? 1 : -1;
+  const targetAngle = firstAngle + sign * radians(valueDegrees);
+  const pivot = distance(secondLine.a, vertex) <= distance(secondLine.b, vertex) ? secondLine.a : secondLine.b;
+  const movingHandle = pivot === secondLine.a ? "b" : "a";
+  const moving = movingHandle === "a" ? secondLine.a : secondLine.b;
+  const length = Math.max(distance(pivot, moving), 1e-9);
+  return { pivot, movingHandle, target: { x: pivot.x + Math.cos(targetAngle) * length, y: pivot.y + Math.sin(targetAngle) * length } };
 }
 
 export function constraintSupersedesOrthogonalProfileDimension(constraint: LinearDimensionConstraint, entity: SketchEntity, entities: SketchEntity[]): boolean {

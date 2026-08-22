@@ -20,7 +20,7 @@ type DocumentPayload = {
 };
 export type SketchPlane = "XY" | "XZ" | "YZ" | { kind: "face"; bodyId: string; faceIndex: number; faceId: string };
 export type SketchRecord = { id: string; name: string; plane: SketchPlane; entities: unknown[]; visible?: boolean };
-export type FeatureRecord = { id: string; name: string; type: "extrude" | "revolve"; sketchId: string; combine: "new" | "union" | "cut"; bodyId?: string; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: "construction" | "origin-x" | "origin-y" | "profile-left" };
+export type FeatureRecord = { id: string; name: string; type: "extrude" | "revolve"; sketchId: string; combine: "new" | "union" | "cut"; bodyId?: string; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: "construction" | "origin-x" | "origin-y" | "profile-left"; visible?: boolean };
 export type DocumentRequest = { sketches: SketchRecord[]; features: FeatureRecord[] };
 export type SelectedFace = { id: string; bodyId: string; faceIndex: number };
 type DocumentStatus = "idle" | "connecting" | "ready" | "offline" | "error";
@@ -35,17 +35,24 @@ type Props = {
   featurePreview?: { type: "extrude"; sketchId: string; combine: "new" | "union" | "cut"; targetBodyId?: string; extent: "one-sided" | "symmetric" | "bidirectional"; distance: number; distancePlus: number; distanceMinus: number; direction: 1 | -1 } | null;
   selectedBodyId?: string | null;
   selectedPlane?: "XY" | "XZ" | "YZ" | null;
+  showModelGrid?: boolean;
+  originCsyVisible?: boolean;
+  originPlanesVisible?: Record<"XY" | "XZ" | "YZ", boolean>;
   highlightedSketchId?: string | null;
+  selectableSketchIds?: string[] | null;
   highlightedFeatureId?: string | null;
   onSketchViewChange?: (view: SketchView) => void;
   onSketchRotatedChange?: (rotated: boolean) => void;
   onExternalReferencesChange?: (references: ExternalSketchReference[]) => void;
+  onSelectSketch?: (sketchId: string) => void;
+  onFeaturePreviewDistanceChange?: (direction: 1 | -1, distance: number, phase: "preview" | "commit" | "cancel") => void;
   onSelectFace: (face: SelectedFace | null) => void;
   onStatus: (status: DocumentStatus, properties?: DocumentPayload["properties"], message?: string) => void;
 };
 
 type WorldSketchFrame = { origin: THREE.Vector3; xDir: THREE.Vector3; yDir: THREE.Vector3; normal: THREE.Vector3 };
 const API = typeof window === "undefined" ? "http://127.0.0.1:8000" : `${window.location.protocol}//${window.location.hostname}:8000`;
+const ORIGIN_PLANE_COLORS = { XY: 0x3b82f6, XZ: 0x22c55e, YZ: 0xef4444 } as const;
 
 function disposeSketchGroup(group: THREE.Group) {
   for (const child of [...group.children]) {
@@ -89,7 +96,36 @@ function sketchExternalReferences(data: DocumentPayload, frame: WorldSketchFrame
   return references;
 }
 
-export function CadViewport({ document, editingSketchId = null, editingSketch = null, sketchView, snapNormalRequest = 0, featurePreview = null, selectedBodyId = null, selectedPlane = null, highlightedSketchId = null, highlightedFeatureId = null, onSketchViewChange, onSketchRotatedChange, onExternalReferencesChange, onSelectFace, onStatus }: Props) {
+function addOriginCsy(scene: THREE.Scene, size: number) {
+  const length = Math.max(size * 0.72, 64);
+  const axes = [
+    { direction: new THREE.Vector3(1, 0, 0), color: 0xef4444 },
+    { direction: new THREE.Vector3(0, 1, 0), color: 0x22c55e },
+    { direction: new THREE.Vector3(0, 0, 1), color: 0x3b82f6 },
+  ];
+  for (const { direction, color } of axes) {
+    const geometry = new THREE.BufferGeometry().setFromPoints([direction.clone().multiplyScalar(-length), direction.clone().multiplyScalar(length)]);
+    const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.82, depthTest: false }));
+    line.renderOrder = 2;
+    scene.add(line);
+  }
+}
+
+function addOriginPlane(scene: THREE.Scene, plane: "XY" | "XZ" | "YZ", size: number) {
+  const planeSize = Math.max(size * 1.8, 140);
+  const geometry = new THREE.PlaneGeometry(planeSize, planeSize);
+  const planeMesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: ORIGIN_PLANE_COLORS[plane], transparent: true, opacity: 0.11, depthWrite: false, side: THREE.DoubleSide }));
+  if (plane === "XZ") planeMesh.rotation.x = Math.PI / 2;
+  if (plane === "YZ") planeMesh.rotation.y = Math.PI / 2;
+  planeMesh.renderOrder = 1;
+  scene.add(planeMesh);
+  const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: ORIGIN_PLANE_COLORS[plane], transparent: true, opacity: 0.78, depthTest: false }));
+  outline.rotation.copy(planeMesh.rotation);
+  outline.renderOrder = 7;
+  scene.add(outline);
+}
+
+export function CadViewport({ document, editingSketchId = null, editingSketch = null, sketchView, snapNormalRequest = 0, featurePreview = null, selectedBodyId = null, selectedPlane = null, showModelGrid = true, originCsyVisible = true, originPlanesVisible = { XY: false, XZ: false, YZ: false }, highlightedSketchId = null, selectableSketchIds = null, highlightedFeatureId = null, onSketchViewChange, onSketchRotatedChange, onExternalReferencesChange, onSelectSketch, onFeaturePreviewDistanceChange, onSelectFace, onStatus }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const savedViewRef = useRef<SavedView | null>(null);
   const liveSketchGroupRef = useRef<THREE.Group | null>(null);
@@ -101,6 +137,9 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
   const highlightedFeature = document.features.find((feature) => feature.id === highlightedFeatureId);
   const highlightedFeatureBodyId = highlightedFeature?.bodyId ?? highlightedFeature?.targetBodyId ?? null;
   const highlightedFeatureSketchId = highlightedFeature?.sketchId ?? null;
+  const selectableSketchKey = selectableSketchIds?.join("|") ?? "";
+  const hiddenBodyIds = new Set(document.features.filter((feature) => feature.visible === false).map((feature) => feature.bodyId ?? feature.targetBodyId).filter((bodyId): bodyId is string => Boolean(bodyId)));
+  const hiddenBodyKey = [...hiddenBodyIds].sort().join("|");
 
   useEffect(() => {
     editingEntitiesRef.current = editingSketch?.entities ?? [];
@@ -151,7 +190,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     scene.add(new THREE.HemisphereLight(0xdaf3ff, 0x17202a, 2.2));
     const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(120, -100, 180); scene.add(key);
     if (!sketchMode) {
-      const grid = new THREE.GridHelper(520, 34, 0x3e5264, 0x263644); grid.rotation.x = Math.PI / 2; grid.position.z = -0.08; scene.add(grid, new THREE.AxesHelper(45));
+      if (showModelGrid) { const grid = new THREE.GridHelper(520, 34, 0x3e5264, 0x263644); grid.rotation.x = Math.PI / 2; grid.position.z = -0.08; scene.add(grid); }
     }
 
     const model = new THREE.Group();
@@ -165,6 +204,27 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     let lastRotated: boolean | null = null;
     let lastView = sketchViewRef.current;
     const selectionPulseMaterials: THREE.PointsMaterial[] = [];
+    const extrusionArrowHits: THREE.Mesh[] = [];
+    const extrusionPreviewTargets: { geometry: THREE.BufferGeometry; original: Float32Array; surface: boolean }[] = [];
+    let extrusionDeformation: { origin: THREE.Vector3; normal: THREE.Vector3; plus: number; minus: number } | null = null;
+    const deformExtrusionPreview = (direction: 1 | -1, distance: number) => {
+      if (!featurePreview || !extrusionDeformation) return;
+      let plus = extrusionDeformation.plus; let minus = extrusionDeformation.minus;
+      if (featurePreview.extent === "one-sided") { if (direction > 0) plus = distance; else minus = distance; }
+      else if (featurePreview.extent === "symmetric") { plus = distance; minus = distance; }
+      else if (direction > 0) plus = distance; else minus = distance;
+      const { origin, normal } = extrusionDeformation;
+      for (const target of extrusionPreviewTargets) {
+        const position = target.geometry.getAttribute("position") as THREE.BufferAttribute;
+        for (let index = 0; index < position.count; index++) {
+          const offsetX = target.original[index * 3] - origin.x; const offsetY = target.original[index * 3 + 1] - origin.y; const offsetZ = target.original[index * 3 + 2] - origin.z;
+          const signed = offsetX * normal.x + offsetY * normal.y + offsetZ * normal.z;
+          const scale = signed >= 0 ? (extrusionDeformation.plus > 1e-6 ? plus / extrusionDeformation.plus : 1) : (extrusionDeformation.minus > 1e-6 ? minus / extrusionDeformation.minus : 1);
+          const change = signed * (scale - 1); position.setXYZ(index, target.original[index * 3] + normal.x * change, target.original[index * 3 + 1] + normal.y * change, target.original[index * 3 + 2] + normal.z * change);
+        }
+        position.needsUpdate = true; target.geometry.computeBoundingSphere(); if (target.surface) target.geometry.computeVertexNormals();
+      }
+    };
 
     const bodyColor = (bodyId: string) => highlightedFeatureBodyId === bodyId ? 0xe7a63d : selectedBodyId === bodyId ? 0x4fb9df : 0x3097bd;
     const setSelected = (mesh: THREE.Mesh | null) => {
@@ -197,6 +257,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
         const data = (await response.json()) as DocumentPayload;
         if (disposed) return;
         for (const face of data.faces) {
+          if (hiddenBodyIds.has(face.bodyId)) continue;
           const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(face.vertices.flat(), 3)); geometry.setIndex(face.triangles.flat()); geometry.computeVertexNormals();
           const bodyHighlighted = selectedBodyId === face.bodyId;
           const featureHighlighted = highlightedFeatureBodyId === face.bodyId;
@@ -209,11 +270,12 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
             if (path.points.length < 2) continue;
             const geometry = new THREE.BufferGeometry().setFromPoints(path.points.map((point) => new THREE.Vector3(...point)));
             const sketchHighlighted = sketch.id === highlightedSketchId;
+            const sketchSelectable = selectableSketchIds?.includes(sketch.id) ?? false;
             const featureProfileHighlighted = sketch.id === highlightedFeatureSketchId;
-            const highlightColor = sketchHighlighted ? 0xe9fcff : featureProfileHighlighted ? 0xfff0ae : path.construction ? 0xc084fc : 0xf6b94d;
+            const highlightColor = sketchHighlighted ? 0xe9fcff : sketchSelectable ? 0x72e6ff : featureProfileHighlighted ? 0xfff0ae : path.construction ? 0xc084fc : 0xf6b94d;
             const material = path.construction ? new THREE.LineDashedMaterial({ color: highlightColor, dashSize: 4, gapSize: 2, depthTest: false }) : new THREE.LineBasicMaterial({ color: highlightColor, depthTest: false, transparent: true, opacity: 0.95 });
-            const line = new THREE.Line(geometry, material); if (path.construction) line.computeLineDistances(); line.renderOrder = 4; sketchLayer.add(line);
-            if (sketchHighlighted || featureProfileHighlighted) {
+            const line = new THREE.Line(geometry, material); line.userData = { sketchId: sketch.id, selectableSketch: sketchSelectable }; if (path.construction) line.computeLineDistances(); line.renderOrder = 4; sketchLayer.add(line);
+            if (sketchHighlighted || sketchSelectable || featureProfileHighlighted) {
               const sourcePoints = path.points.map((point) => new THREE.Vector3(...point));
               const haloPoints: THREE.Vector3[] = [];
               for (let index = 1; index < sourcePoints.length; index++) {
@@ -222,7 +284,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
                 for (let step = 0; step < steps; step++) haloPoints.push(start.clone().lerp(end, step / steps));
               }
               if (sourcePoints.length) haloPoints.push(sourcePoints.at(-1)!.clone());
-              const haloMaterial = new THREE.PointsMaterial({ color: sketchHighlighted ? 0x48dcff : 0xffc84a, size: 7.5, sizeAttenuation: false, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false });
+              const haloMaterial = new THREE.PointsMaterial({ color: sketchHighlighted || sketchSelectable ? 0x48dcff : 0xffc84a, size: sketchSelectable ? 6.5 : 7.5, sizeAttenuation: false, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false });
               const halo = new THREE.Points(new THREE.BufferGeometry().setFromPoints(haloPoints), haloMaterial); halo.renderOrder = 7; sketchLayer.add(halo); selectionPulseMaterials.push(haloMaterial);
             }
           }
@@ -247,15 +309,18 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
               side: THREE.DoubleSide,
             }));
             phantom.renderOrder = 5;
-            scene.add(phantom);
-            const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 18), new THREE.LineBasicMaterial({ color: previewColor, transparent: true, opacity: 0.9, depthWrite: false }));
+            scene.add(phantom); extrusionPreviewTargets.push({ geometry, original: new Float32Array((geometry.getAttribute("position") as THREE.BufferAttribute).array), surface: true });
+            const outlineGeometry = new THREE.EdgesGeometry(geometry, 18); const outline = new THREE.LineSegments(outlineGeometry, new THREE.LineBasicMaterial({ color: previewColor, transparent: true, opacity: 0.9, depthWrite: false }));
             outline.renderOrder = 6;
-            scene.add(outline);
+            scene.add(outline); extrusionPreviewTargets.push({ geometry: outlineGeometry, original: new Float32Array((outlineGeometry.getAttribute("position") as THREE.BufferAttribute).array), surface: false });
           }
 
           const previewSketch = data.sketches.find((sketch) => sketch.id === featurePreview.sketchId);
           if (previewSketch) {
             const sketchNormal = new THREE.Vector3(...previewSketch.frame.normal).normalize();
+            const originalPlus = featurePreview.extent === "one-sided" ? featurePreview.direction > 0 ? featurePreview.distance : 0 : featurePreview.distancePlus;
+            const originalMinus = featurePreview.extent === "one-sided" ? featurePreview.direction < 0 ? featurePreview.distance : 0 : featurePreview.extent === "symmetric" ? featurePreview.distancePlus : featurePreview.distanceMinus;
+            extrusionDeformation = { origin: new THREE.Vector3(...previewSketch.frame.origin), normal: sketchNormal.clone(), plus: originalPlus, minus: originalMinus };
             const previewPoints = previewSketch.paths.flatMap((path) => path.points).map((point) => new THREE.Vector3(...point));
             const arrowOrigin = previewPoints.length
               ? new THREE.Box3().setFromPoints(previewPoints).getCenter(new THREE.Vector3())
@@ -279,21 +344,23 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
                 }
               });
               scene.add(arrow);
+              const hitGeometry = new THREE.CylinderGeometry(4.5, 4.5, 1, 8);
+              const hitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.001, depthWrite: false });
+              const hitHandle = new THREE.Mesh(hitGeometry, hitMaterial);
+              hitHandle.scale.y = arrowLength + 8; hitHandle.position.copy(arrowOrigin).addScaledVector(normal, arrowLength / 2);
+              hitHandle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+              hitHandle.userData = { extrusionDirection: sign as 1 | -1, extrusionDistance: distance, arrowDirection: normal.clone(), arrowOrigin: arrowOrigin.clone(), arrowHelper: arrow };
+              hitHandle.renderOrder = 9; scene.add(hitHandle); extrusionArrowHits.push(hitHandle);
             });
           }
         }
 
         const size = Math.max(data.properties.bounds.x, data.properties.bounds.y, data.properties.bounds.z, 80);
-        if (selectedPlane && !sketchMode) {
-          const planeSize = Math.max(size * 1.8, 140);
-          const geometry = new THREE.PlaneGeometry(planeSize, planeSize);
-          const colors = { XY: 0x3b82f6, XZ: 0x22c55e, YZ: 0xef4444 } as const;
-          const planeMesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: colors[selectedPlane], transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide }));
-          if (selectedPlane === "XZ") planeMesh.rotation.x = Math.PI / 2;
-          if (selectedPlane === "YZ") planeMesh.rotation.y = Math.PI / 2;
-          scene.add(planeMesh);
-          const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: colors[selectedPlane], transparent: true, opacity: 0.9, depthTest: false }));
-          outline.rotation.copy(planeMesh.rotation); outline.renderOrder = 7; scene.add(outline);
+        if (!sketchMode) {
+          if (originCsyVisible) addOriginCsy(scene, size);
+          (["XY", "XZ", "YZ"] as const).forEach((plane) => {
+            if (originPlanesVisible[plane]) addOriginPlane(scene, plane, size);
+          });
         }
         if (sketchMode) {
           const frame = data.sketches.find((sketch) => sketch.id === editingSketchId)?.frame;
@@ -329,13 +396,51 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     loadDocument();
 
     const raycaster = new THREE.Raycaster(); const pointer = new THREE.Vector2(); let pointerDown = { x: 0, y: 0 };
-    const onDown = (event: PointerEvent) => { pointerDown = { x: event.clientX, y: event.clientY }; };
-    const onUp = (event: PointerEvent) => {
-      if (sketchMode || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4) return;
-      const bounds = renderer.domElement.getBoundingClientRect(); pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1; pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
-      raycaster.setFromCamera(pointer, camera); const hit = raycaster.intersectObjects(model.children.filter((object) => object instanceof THREE.Mesh), false)[0]; setSelected((hit?.object as THREE.Mesh) ?? null);
+    let arrowDrag: { pointerId: number; direction: 1 | -1; originalDistance: number; pendingDistance: number; axis: THREE.Vector3; origin: THREE.Vector3; plane: THREE.Plane; start: THREE.Vector3; helper: THREE.ArrowHelper; hitHandle: THREE.Mesh } | null = null;
+    raycaster.params.Line = { threshold: 4 };
+    const pointRayAt = (event: PointerEvent) => { const bounds = renderer.domElement.getBoundingClientRect(); pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1; pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1; raycaster.setFromCamera(pointer, camera); };
+    const onDown = (event: PointerEvent) => {
+      pointerDown = { x: event.clientX, y: event.clientY };
+      if (event.button !== 0 || !extrusionArrowHits.length) return;
+      pointRayAt(event); const hit = raycaster.intersectObjects(extrusionArrowHits, false)[0]; if (!hit) return;
+      const handle = hit.object as THREE.Mesh; const axis = (handle.userData.arrowDirection as THREE.Vector3).clone(); const cameraDirection = new THREE.Vector3(); camera.getWorldDirection(cameraDirection);
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(cameraDirection, hit.point); const start = raycaster.ray.intersectPlane(plane, new THREE.Vector3()) ?? hit.point.clone();
+      arrowDrag = { pointerId: event.pointerId, direction: handle.userData.extrusionDirection, originalDistance: handle.userData.extrusionDistance, pendingDistance: handle.userData.extrusionDistance, axis, origin: (handle.userData.arrowOrigin as THREE.Vector3).clone(), plane, start, helper: handle.userData.arrowHelper, hitHandle: handle };
+      controls.enabled = false; renderer.domElement.setPointerCapture(event.pointerId); renderer.domElement.style.cursor = "grabbing"; event.preventDefault(); event.stopPropagation();
     };
-    renderer.domElement.addEventListener("pointerdown", onDown); renderer.domElement.addEventListener("pointerup", onUp);
+    const onMove = (event: PointerEvent) => {
+      pointRayAt(event);
+      if (arrowDrag) {
+        const current = raycaster.ray.intersectPlane(arrowDrag.plane, new THREE.Vector3()); if (!current) return;
+        const distance = Math.max(0.1, arrowDrag.originalDistance + current.sub(arrowDrag.start).dot(arrowDrag.axis)); arrowDrag.pendingDistance = distance;
+        const visibleLength = Math.max(18, Math.min(distance, 80)); arrowDrag.helper.setLength(visibleLength, Math.min(10, visibleLength * 0.35), Math.min(6, visibleLength * 0.22));
+        arrowDrag.hitHandle.scale.y = visibleLength + 8; arrowDrag.hitHandle.position.copy(arrowDrag.origin).addScaledVector(arrowDrag.axis, visibleLength / 2); deformExtrusionPreview(arrowDrag.direction, distance); onFeaturePreviewDistanceChange?.(arrowDrag.direction, distance, "preview"); return;
+      }
+      const arrowHovered = extrusionArrowHits.length > 0 && raycaster.intersectObjects(extrusionArrowHits, false).length > 0;
+      renderer.domElement.style.cursor = arrowHovered ? "grab" : selectableSketchIds !== null ? "pointer" : "";
+    };
+    const finishArrowDrag = (commit: boolean) => {
+      if (!arrowDrag) return false;
+      const completed = arrowDrag; arrowDrag = null; controls.enabled = true;
+      if (renderer.domElement.hasPointerCapture(completed.pointerId)) renderer.domElement.releasePointerCapture(completed.pointerId);
+      renderer.domElement.style.cursor = "grab";
+      if (commit) onFeaturePreviewDistanceChange?.(completed.direction, completed.pendingDistance, "commit");
+      else { const visibleLength = Math.max(18, Math.min(completed.originalDistance, 80)); completed.helper.setLength(visibleLength, Math.min(10, visibleLength * 0.35), Math.min(6, visibleLength * 0.22)); completed.hitHandle.scale.y = visibleLength + 8; completed.hitHandle.position.copy(completed.origin).addScaledVector(completed.axis, visibleLength / 2); deformExtrusionPreview(completed.direction, completed.originalDistance); onFeaturePreviewDistanceChange?.(completed.direction, completed.originalDistance, "cancel"); }
+      return true;
+    };
+    const onUp = (event: PointerEvent) => {
+      if (finishArrowDrag(true)) return;
+      if (sketchMode || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4) return;
+      pointRayAt(event);
+      if (selectableSketchIds !== null) {
+        const sketchHit = raycaster.intersectObjects(sketchLayer.children.filter((object) => object instanceof THREE.Line && object.userData.selectableSketch), false)[0];
+        if (sketchHit?.object.userData.sketchId) onSelectSketch?.(sketchHit.object.userData.sketchId);
+        return;
+      }
+      const hit = raycaster.intersectObjects(model.children.filter((object) => object instanceof THREE.Mesh), false)[0]; setSelected((hit?.object as THREE.Mesh) ?? null);
+    };
+    const onCancel = () => { finishArrowDrag(false); };
+    renderer.domElement.addEventListener("pointerdown", onDown); renderer.domElement.addEventListener("pointermove", onMove); renderer.domElement.addEventListener("pointerup", onUp); renderer.domElement.addEventListener("pointercancel", onCancel);
 
     const resize = new ResizeObserver(() => {
       const { width, height } = host.getBoundingClientRect(); const aspect = width / Math.max(height, 1); renderer.setSize(width, height, false);
@@ -349,14 +454,14 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
 
     return () => {
       if (!sketchMode && camera instanceof THREE.PerspectiveCamera) savedViewRef.current = { position: camera.position.clone(), target: controls.target.clone(), up: camera.up.clone() };
-      disposed = true; cancelAnimationFrame(animation); resize.disconnect(); renderer.domElement.removeEventListener("pointerdown", onDown); renderer.domElement.removeEventListener("pointerup", onUp);
+      disposed = true; cancelAnimationFrame(animation); resize.disconnect(); renderer.domElement.removeEventListener("pointerdown", onDown); renderer.domElement.removeEventListener("pointermove", onMove); renderer.domElement.removeEventListener("pointerup", onUp); renderer.domElement.removeEventListener("pointercancel", onCancel);
       controls.removeEventListener("change", syncSketchView); controls.dispose(); navigationElement.removeEventListener("contextmenu", preventContextMenu);
       if (liveSketchGroupRef.current === liveSketchLayer) liveSketchGroupRef.current = null;
       if (sketchFrameRef.current === activeFrame) sketchFrameRef.current = null;
       scene.traverse((object) => { if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Line || object instanceof THREE.Points) { object.geometry.dispose(); (object.material as THREE.Material).dispose(); } });
       renderer.dispose(); renderer.domElement.remove();
     };
-  }, [documentRequestKey, editingSketchId, featurePreview, highlightedFeatureBodyId, highlightedFeatureSketchId, highlightedSketchId, selectedPlane, snapNormalRequest, selectedBodyId, onExternalReferencesChange, onSelectFace, onSketchRotatedChange, onSketchViewChange, onStatus]);
+  }, [documentRequestKey, editingSketchId, featurePreview, hiddenBodyKey, highlightedFeatureBodyId, highlightedFeatureSketchId, highlightedSketchId, selectableSketchKey, selectedPlane, showModelGrid, originCsyVisible, originPlanesVisible, snapNormalRequest, selectedBodyId, onExternalReferencesChange, onFeaturePreviewDistanceChange, onSelectFace, onSelectSketch, onSketchRotatedChange, onSketchViewChange, onStatus]);
 
-  return <div ref={hostRef} className="webgl-host" />;
+  return <div ref={hostRef} className={`webgl-host ${selectableSketchIds !== null ? "sketch-profile-picking" : ""}`} />;
 }

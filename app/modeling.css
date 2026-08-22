@@ -1,17 +1,18 @@
 .viewport.sketch-mode .sketcher-shell {
   z-index: 3;
   background: transparent;
+  grid-template-rows: 70px 1fr 25px;
 }
 
 .viewport.sketch-mode .webgl-host {
   z-index: 1;
-  top: 42px;
+  top: 70px;
   bottom: 25px;
 }
 
 .viewport.sketch-mode .view-label {
   z-index: 4;
-  top: 50px;
+  top: 78px;
 }
 
 .sketch-canvas.tool-trim {
@@ -47,6 +48,55 @@
 
 .tree-row.body-row {
   padding-left: 49px;
+}
+
+.workspace {
+  position: relative;
+  transition: grid-template-columns 0.18s ease;
+}
+
+.workspace.properties-collapsed {
+  grid-template-columns: 230px minmax(420px, 1fr) 0;
+}
+
+.workspace.properties-collapsed .properties-panel {
+  width: 0;
+  border-left: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.properties-collapse-toggle {
+  position: absolute;
+  z-index: 8;
+  top: 8px;
+  right: 248px;
+  width: 24px;
+  height: 34px;
+  border: 1px solid #344654;
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
+  background: #101820e8;
+  color: #8bdcf7;
+  box-shadow: 0 7px 20px #0007;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.12em;
+}
+
+.properties-collapse-toggle:hover {
+  border-color: #4f8299;
+  background: #162633;
+  color: #d9f7ff;
+}
+
+.workspace.properties-collapsed .properties-collapse-toggle {
+  right: 0;
+  border-right: 1px solid #344654;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  letter-spacing: -0.12em;
 }
 
 .tree-row.body-row .body-icon {
@@ -98,6 +148,27 @@
   background: #164158;
 }
 
+.tree-row.profile-choice { color:#e8fbff; background:#102d3a; box-shadow:inset 3px 0 #48dcff; }
+.tree-row.profile-choice .feature-icon { color:#9cedff; filter:drop-shadow(0 0 5px #36d3ff); }
+.tree-row.profile-choice:hover { background:#17485d; }
+.tree-feature-item { gap:5px; padding-right:5px; }
+.tree-feature-item>.tree-button { display:flex; align-items:center; gap:7px; min-width:0; height:100%; padding:0; color:inherit; }
+.tree-feature-item>.tree-button .tree-support { margin-left:auto; }
+.tree-visibility { flex:0 0 auto; width:12px; height:12px; margin:0; accent-color:#43c8ef; cursor:pointer; }
+.tree-feature-item.hidden-feature>.tree-button { color:#687784; opacity:.72; }
+.tree-feature-item.hidden-feature>.tree-button .feature-icon { color:#52636e; }
+.origin-display-item>.tree-button { cursor:pointer; }
+.origin-display-item .plane { flex:0 0 auto; }
+.csy-icon { color:#f59e0b; font-size:14px; line-height:1; }
+.origin-display-item.hidden-feature .plane,
+.origin-display-item.hidden-feature .csy-icon { opacity:.45; filter:saturate(.55); }
+.webgl-host.sketch-profile-picking canvas { cursor:pointer; }
+.profile-pick-callout { border-color:#48dcff; }
+.model-grid-toggle { position:absolute; z-index:6; right:14px; bottom:14px; display:grid; place-items:center; width:30px; height:30px; padding:0; border:1px solid #344654; border-radius:5px; background:#101820dc; color:#758898; box-shadow:0 5px 16px #0007; cursor:pointer; }
+.model-grid-toggle:hover { border-color:#5d91a8; background:#172631; }
+.model-grid-toggle.active { border-color:#3b9abf; color:#78d9f7; background:#123040e8; }
+.model-grid-icon { width:16px; height:16px; border:1px solid currentColor; transform:perspective(20px) rotateX(55deg); background:repeating-linear-gradient(90deg,transparent 0 4px,currentColor 4px 5px),repeating-linear-gradient(0deg,transparent 0 4px,currentColor 4px 5px); opacity:.9; }
+
 .support-pick-callout {
   position: absolute;
   z-index: 5;
@@ -131,6 +202,29 @@
   outline: none;
 }
 
+.dimension-annotation:not(.selected) {
+  opacity: 0.38;
+}
+
+.dimension-annotation:not(.selected):hover {
+  opacity: 0.82;
+}
+
+.dimension-annotation:not(.selected) .sketch-dimension line,
+.dimension-annotation:not(.selected) .sketch-dimension path {
+  fill: #3d7890;
+  stroke: #3d7890;
+}
+
+.dimension-annotation:not(.selected) .sketch-dimension rect {
+  fill: #0d151b;
+  stroke: #284657;
+}
+
+.dimension-annotation:not(.selected) .sketch-dimension text {
+  fill: #7baabb;
+}
+
 .sketch-dimension:focus rect {
   stroke: #f6b94d;
   stroke-width: var(--sketch-highlight-width, 1.2px);
@@ -159,6 +253,102 @@
   pointer-events: none;
 }
 
+.sketch-commandbar {
+  gap: 7px;
+  padding: 3px 8px 4px;
+  align-items: stretch;
+}
+
+.sketch-command-group {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  min-width: max-content;
+  padding: 3px 5px 4px;
+  border: 1px solid #253440;
+  border-radius: 6px;
+  background: #101922;
+}
+
+.sketch-command-group b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 11px;
+  padding: 0 3px;
+  color: #6f8597;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.sketch-command-group b::after { content:""; flex:1; min-width:10px; height:1px; background:linear-gradient(90deg,#314653,transparent); }
+.sketch-command-tools { display:flex; align-items:stretch; gap:2px; }
+
+.sketch-commandbar .sketch-tool-button {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 38px;
+  min-width: 38px;
+  height: 45px;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+
+.sketch-commandbar .sketch-tool-button:hover {
+  border-color: #304b5c;
+}
+
+.sketch-commandbar .sketch-tool-button.active {
+  border-color: #38bdf8;
+  background: #123246;
+}
+
+.sketch-tool-icon {
+  display: grid;
+  width: 22px;
+  height: 20px;
+  place-items: center;
+  color: #b7d9e7;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.sketch-tool-label {
+  display: block;
+  max-width: 34px;
+  overflow: hidden;
+  color: #8ea0ae;
+  font-size: 8px;
+  font-weight: 650;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sketch-tool-button.active .sketch-tool-label,
+.sketch-tool-button:hover .sketch-tool-label {
+  color: #dff6ff;
+}
+
+.sketch-commandbar .finish-sketch {
+  color: #dfffee;
+}
+
+.sketch-commandbar .finish-sketch .sketch-tool-icon {
+  color: #79e6ae;
+}
+
 .sketch-ribbon-divider {
   align-self: stretch;
   width: 1px;
@@ -181,6 +371,12 @@
   gap: 6px;
 }
 
+.sketch-commandbar .sketch-tool-button.constraint-tool {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
 .linear-dimension-icon {
   display: inline-grid;
   width: 18px;
@@ -193,9 +389,29 @@
   line-height: 1;
 }
 
+.angular-dimension-icon {
+  display: inline-grid;
+  width: 18px;
+  height: 14px;
+  place-items: center;
+  color: #ffd56f;
+  font-size: 16px;
+  line-height: 1;
+}
+
 .axis-constraint-icon { display:inline-block; width:14px; height:14px; position:relative; }
 .axis-constraint-icon::after { content:""; position:absolute; inset:6px 1px auto; border-top:2px solid #71d6f7; }
 .axis-constraint-icon.vertical::after { inset:1px auto 1px 6px; border-top:0; border-left:2px solid #71d6f7; }
+.perpendicular-constraint-icon { display:inline-block; width:14px; height:14px; position:relative; }
+.perpendicular-constraint-icon::before,
+.perpendicular-constraint-icon::after { content:""; position:absolute; left:3px; bottom:3px; background:#71d6f7; }
+.perpendicular-constraint-icon::before { width:9px; height:2px; }
+.perpendicular-constraint-icon::after { width:2px; height:9px; }
+.mirror-pattern-icon { position:relative; display:inline-block; width:20px; height:16px; }
+.mirror-pattern-icon::before { content:""; position:absolute; left:9px; top:1px; bottom:1px; border-left:1px dashed #7dd3fc; }
+.mirror-pattern-icon i { position:absolute; top:4px; width:0; height:0; border-top:4px solid transparent; border-bottom:4px solid transparent; }
+.mirror-pattern-icon i:first-child { left:1px; border-right:6px solid #71d6f7; }
+.mirror-pattern-icon i:last-child { right:1px; border-left:6px solid #d69cff; }
 .locked-axis-constraint { cursor:pointer; outline:none; }
 .locked-axis-constraint rect { fill:#241634; stroke:#b467ee; stroke-width:1px; vector-effect:non-scaling-stroke; }
 .locked-axis-constraint text { fill:#d69cff; font:bold 7px Segoe UI,Arial,sans-serif; pointer-events:none; }
@@ -203,11 +419,30 @@
 .locked-axis-constraint.selected rect { fill:#49321b; stroke:#ffd56f; stroke-width:1.5px; }
 .locked-axis-constraint:hover text,
 .locked-axis-constraint.selected text { fill:#ffd56f; }
+.mirror-constraint-badge { cursor:pointer; outline:none; }
+.mirror-constraint-badge rect { fill:#1d1932; stroke:#9f7aea; stroke-width:1px; vector-effect:non-scaling-stroke; }
+.mirror-constraint-badge text { fill:#d8c4ff; font:700 5.5px "Segoe UI Variable Text","Segoe UI",sans-serif; pointer-events:none; }
+.mirror-constraint-badge:hover rect,
+.mirror-constraint-badge.selected rect { fill:#49321b; stroke:#ffd56f; stroke-width:1.3px; }
+.mirror-constraint-badge:hover text,
+.mirror-constraint-badge.selected text { fill:#ffd56f; }
 .sketch-constraint-shortcut { position:fixed; z-index:80; transform:translate(6px,6px); padding:3px; border:1px solid #3b5263; border-radius:5px; background:#111a22; box-shadow:0 6px 18px #0009; }
 .sketch-constraint-shortcut button { display:flex; align-items:center; gap:5px; padding:4px 7px; border:0; border-radius:3px; background:transparent; color:#c9d7e2; font-size:10px; cursor:pointer; }
 .sketch-constraint-shortcut button:hover { background:#243746; color:#fff; }
+.sketch-canvas.tool-extend { cursor: crosshair; }
+.sketch-canvas.tool-mirror { cursor:crosshair; }
+.sketch-entity.extend-source > *:not(.sketch-point):not(.sketch-line-hit) { stroke:#8ee89e !important; stroke-width:var(--sketch-highlight-width,1.2px) !important; }
+.spline-handle-layer line { stroke:#55d69a; stroke-width:.7px; vector-effect:non-scaling-stroke; pointer-events:none; }
+.spline-handle-layer circle { fill:#10271e; stroke:#67e8ad; stroke-width:1px; vector-effect:non-scaling-stroke; cursor:grab; }
+.spline-handle-layer circle:hover { fill:#f6b94d; stroke:#ffe09a; }
+.spline-hit { fill:none !important; stroke:transparent !important; stroke-width:14px !important; vector-effect:non-scaling-stroke; pointer-events:stroke; }
+.sketch-spline-context button::before { display:grid; place-items:center; width:12px; height:12px; border:1px solid #6f8798; border-radius:50%; color:#8ee8ff; font-size:10px; line-height:1; }
+.sketch-spline-context button.add::before { content:"+"; }
+.sketch-spline-context button.delete::before { content:"−"; color:#ffad98; border-color:#9a6055; }
+.sketch-spline-context button:first-child:last-child { min-width:112px; }
 
-.sketch-canvas.tool-linear-dimension {
+.sketch-canvas.tool-linear-dimension,
+.sketch-canvas.tool-angular-dimension {
   cursor: crosshair;
 }
 

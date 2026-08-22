@@ -35,6 +35,35 @@ def point_distance(first: dict, second: dict) -> float:
     return ((float(first["x"]) - float(second["x"])) ** 2 + (float(first["y"]) - float(second["y"])) ** 2) ** 0.5
 
 
+def clean_spline_points(points: list[dict]) -> list[dict]:
+    cleaned: list[dict] = []
+    for point in points:
+        normalized = {"x": float(point["x"]), "y": float(point["y"])}
+        if not cleaned or not points_match(cleaned[-1], normalized, tolerance=1e-5):
+            cleaned.append(normalized)
+    return cleaned
+
+
+def spline_curve_points(entity: dict, samples_per_span: int = 16) -> list[dict]:
+    points = clean_spline_points(entity.get("points", []))
+    handles = entity.get("handles")
+    if len(points) < 2 or not isinstance(handles, list) or len(handles) != len(points):
+        return points
+    sampled: list[dict] = []
+    for index in range(len(points) - 1):
+        start, end = points[index], points[index + 1]
+        start_handle, end_handle = handles[index].get("out"), handles[index + 1].get("in")
+        if not start_handle or not end_handle:
+            return points
+        for sample in range(samples_per_span):
+            amount = sample / samples_per_span; inverse = 1 - amount
+            sampled.append({
+                "x": inverse ** 3 * start["x"] + 3 * inverse ** 2 * amount * float(start_handle["x"]) + 3 * inverse * amount ** 2 * float(end_handle["x"]) + amount ** 3 * end["x"],
+                "y": inverse ** 3 * start["y"] + 3 * inverse ** 2 * amount * float(start_handle["y"]) + 3 * inverse * amount ** 2 * float(end_handle["y"]) + amount ** 3 * end["y"],
+            })
+    return [*sampled, points[-1]]
+
+
 def sketch_wires(entities: list[dict], plane: cq.Plane | None = None) -> tuple[list[cq.Wire], list[dict]]:
     active_plane = plane or cq.Plane.named("XY")
     wires: list[cq.Wire] = []
@@ -50,7 +79,7 @@ def sketch_wires(entities: list[dict], plane: cq.Plane | None = None) -> tuple[l
         elif entity_type == "arc":
             open_entities.append((entity_type, entity, entity["a"], entity["b"]))
         elif entity_type == "spline":
-            points = entity.get("points", [])
+            points = spline_curve_points(entity)
             if len(points) < 2:
                 continue
             is_closed = points_match(points[0], points[-1])
@@ -58,7 +87,7 @@ def sketch_wires(entities: list[dict], plane: cq.Plane | None = None) -> tuple[l
             if is_closed:
                 wires.append(cq.Wire.assembleEdges([edge]))
             else:
-                open_entities.append((entity_type, entity, points[0], points[-1]))
+                open_entities.append((entity_type, {**entity, "points": points}, points[0], points[-1]))
         elif entity_type == "circle":
             wires.append(cq.Wire.makeCircle(float(entity["r"]), vector(entity["c"], active_plane), active_plane.zDir))
         elif entity_type == "ellipse":
@@ -215,7 +244,7 @@ def analyze_sketch_entities(entities: list[dict]) -> dict:
                 else:
                     closed_primitives += 1
             elif entity_type == "spline":
-                points = entity.get("points", [])
+                points = clean_spline_points(entity.get("points", []))
                 if len(points) < 2 or all(points_match(points[0], point) for point in points[1:]):
                     issues.append(f"Spline {index} needs at least two distinct points.")
                 elif points_match(points[0], points[-1]):
@@ -298,7 +327,7 @@ def sketch_curve_payload(sketch: dict, plane: cq.Plane) -> dict:
             elif entity_type == "arc":
                 points = tessellated_edge_points(cq.Edge.makeThreePointArc(vector(entity["a"], plane), vector(entity["through"], plane), vector(entity["b"], plane)))
             elif entity_type == "spline":
-                source = entity.get("points", [])
+                source = spline_curve_points(entity)
                 if len(source) < 2:
                     continue
                 periodic = points_match(source[0], source[-1])
