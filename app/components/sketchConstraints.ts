@@ -35,6 +35,15 @@ export type AngularDimensionConstraint = {
   conflicted?: boolean;
 };
 
+export type DiameterDimensionConstraint = {
+  id: string;
+  type: "diameter";
+  entityId: string;
+  position: Point;
+  value: number;
+  conflicted?: boolean;
+};
+
 export type MirrorConstraint = {
   id: string;
   type: "mirror";
@@ -42,7 +51,7 @@ export type MirrorConstraint = {
   pairs: { sourceId: string; mirroredId: string }[];
 };
 
-export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | MirrorConstraint;
+export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | DiameterDimensionConstraint | MirrorConstraint;
 
 export type DimensionLayout = {
   first: Point;
@@ -63,6 +72,33 @@ export type AngularDimensionLayout = {
   sweep: boolean;
   value: number;
 };
+
+export type DiameterDimensionLayout = {
+  center: Point;
+  first: Point;
+  second: Point;
+  label: Point;
+  value: number;
+};
+
+export function diameterDimensionValue(entityId: string, entities: SketchEntity[]): number {
+  const entity = entities.find((candidate) => candidate.id === entityId);
+  return entity?.type === "circle" ? entity.r * 2 : 0;
+}
+
+export function diameterDimensionLayout(entityId: string, position: Point, entities: SketchEntity[]): DiameterDimensionLayout {
+  const entity = entities.find((candidate) => candidate.id === entityId);
+  if (!entity || entity.type !== "circle") return { center: position, first: position, second: position, label: position, value: 0 };
+  const dx = position.x - entity.c.x; const dy = position.y - entity.c.y; const length = Math.hypot(dx, dy);
+  const direction = length > 1e-8 ? { x: dx / length, y: dy / length } : { x: 1, y: 0 };
+  return {
+    center: entity.c,
+    first: { x: entity.c.x - direction.x * entity.r, y: entity.c.y - direction.y * entity.r },
+    second: { x: entity.c.x + direction.x * entity.r, y: entity.c.y + direction.y * entity.r },
+    label: position,
+    value: entity.r * 2,
+  };
+}
 
 export type AxisOrSketchLineTarget = { kind: "axis"; axis: "x" | "y" } | { kind: "line"; entityId: string };
 

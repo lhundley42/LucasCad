@@ -14,8 +14,9 @@ From PowerShell in this directory:
 .\start-cad.ps1
 ```
 
-The script starts the geometry service on `127.0.0.1:8000` and the browser UI
-on the next available local development port, normally `localhost:3000`.
+The script starts the geometry service on `127.0.0.1:4311` and the browser UI
+at `http://lucascad.localhost:4310`. The dedicated ports keep LucasCad from
+competing with other local development applications.
 
 ## Validate
 
@@ -45,6 +46,8 @@ preservation. The frontend contract tests run with `pnpm test`.
 - Closed sketch profiles drive exact Open CASCADE extrusions with new-body, union, and cut result modes
 - Closed sketch profiles drive partial or full revolutions
 - Revolve axes from a construction centerline, origin axis, or profile edge
+- Constant-radius edge Fillet and symmetric edge Chamfer features with live previews
+- Neutral-plane Draft features with selected taper faces and reversible pull direction
 - Document-order feature replay after sketch, distance, angle, axis, or Boolean changes
 - Selectable Solid Bodies folder and body nodes in the feature tree
 - In-context sketch editing with surrounding bodies visible, a normal-to-support camera, and restoration of the previous 3D view on exit
@@ -54,4 +57,4 @@ preservation. The frontend contract tests run with `pnpm test`.
 - Editable JSON project download
 - Exact STEP export
 
-Next: add a formal geometric constraint solver and feature parameter editing.
+Next: add a formal geometric constraint solver and advanced variable-radius, asymmetric, and parting-line feature variants.

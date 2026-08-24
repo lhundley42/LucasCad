@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -5,12 +6,15 @@ import cadquery as cq
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+from OCP.BRepOffsetAPI import BRepOffsetAPI_DraftAngle
+from OCP.gp import gp_Dir, gp_Pln, gp_Pnt
 
 
-app = FastAPI(title="Basic CAD geometry service", version="0.1.0")
+app = FastAPI(title="LucasCad geometry service", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
+    allow_origins=["http://lucascad.localhost:4310", "http://localhost:4310", "http://127.0.0.1:4310"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -186,7 +190,19 @@ def make_feature(payload: dict, plane: cq.Plane | None = None) -> cq.Shape:
         workplane = cq.Workplane(active_plane).newObject(wires).toPending()
         angle = float(payload.get("angle", 360))
         axis_mode = payload.get("axis", "profile-left")
-        if axis_mode == "construction":
+        axis_line = payload.get("axisLine")
+        if axis_line:
+            world_start = cq.Vector(*[float(value) for value in axis_line["start"]])
+            world_end = cq.Vector(*[float(value) for value in axis_line["end"]])
+            local_start = active_plane.toLocalCoords(world_start)
+            local_end = active_plane.toLocalCoords(world_end)
+            if abs(local_start.z) > 0.05 or abs(local_end.z) > 0.05:
+                raise ValueError("The selected revolve axis must lie in the profile sketch plane.")
+            axis_start = (local_start.x, local_start.y)
+            axis_end = (local_end.x, local_end.y)
+            if cq.Vector(local_end.x - local_start.x, local_end.y - local_start.y, 0).Length < 1e-6:
+                raise ValueError("The selected revolve axis has no usable length.")
+        elif axis_mode == "construction":
             axes = [entity for entity in construction if entity.get("type") == "line"]
             if not axes:
                 raise ValueError("Draw a construction centerline before selecting it as the revolve axis.")
@@ -213,6 +229,90 @@ def make_feature(payload: dict, plane: cq.Plane | None = None) -> cq.Shape:
     if not result.isValid() or not result.Solids():
         raise ValueError("The selected profile and feature settings did not create a valid solid.")
     return result
+
+
+def indexed_items(items: list, requested: list, label: str) -> list:
+    indices = sorted({int(index) for index in requested})
+    if not indices:
+        raise ValueError(f"Select at least one {label}.")
+    if indices[0] < 1 or indices[-1] > len(items):
+        raise ValueError(f"A selected {label} no longer exists after rebuilding earlier features.")
+    return [items[index - 1] for index in indices]
+
+
+def apply_body_feature(body: cq.Shape, feature: dict) -> cq.Shape:
+    operation = feature.get("type") or feature.get("operation")
+    if operation in ("fillet", "chamfer"):
+        edges = indexed_items(body.Edges(), feature.get("edgeIndices") or [], "edge")
+        size = float(feature.get("radius" if operation == "fillet" else "distance", 2))
+        if size <= 0:
+            raise ValueError(f"{operation.title()} size must be greater than zero.")
+        selector = cq.Workplane(obj=body).newObject(edges)
+        try:
+            if operation == "fillet":
+                result = selector.fillet(size).val()
+            else:
+                method = feature.get("method", "symmetric")
+                second_size = None
+                if method == "distance-distance":
+                    second_size = float(feature.get("distance2", size))
+                elif method == "angle-distance":
+                    angle = float(feature.get("angle", 45))
+                    if angle <= 0 or angle >= 90:
+                        raise ValueError("Chamfer angle must be greater than 0° and less than 90°.")
+                    second_size = size * math.tan(math.radians(angle))
+                elif method != "symmetric":
+                    raise ValueError("Unsupported chamfer method.")
+                if second_size is not None and second_size <= 0:
+                    raise ValueError("Both chamfer distances must be greater than zero.")
+                first_size = size
+                if second_size is not None and feature.get("flip"):
+                    first_size, second_size = second_size, first_size
+                result = selector.chamfer(first_size, second_size).val()
+        except Exception as error:
+            if isinstance(error, ValueError) and str(error).startswith(("Chamfer angle", "Both chamfer", "Unsupported chamfer")):
+                raise
+            noun = "radius" if operation == "fillet" else "distance"
+            raise ValueError(f"The {operation} could not be created. Reduce the {noun} or select different edges.") from error
+    elif operation == "draft":
+        faces = body.Faces()
+        neutral_index = int(feature.get("neutralFaceIndex", 0))
+        if neutral_index < 1 or neutral_index > len(faces):
+            raise ValueError("Select a planar neutral face for the draft.")
+        neutral_face = faces[neutral_index - 1]
+        if neutral_face.geomType() != "PLANE":
+            raise ValueError("The neutral face must be planar.")
+        draft_faces = indexed_items(faces, feature.get("faceIndices") or [], "face to draft")
+        if neutral_index in {int(index) for index in feature.get("faceIndices") or []}:
+            raise ValueError("The neutral face cannot also be a face to draft.")
+        angle = abs(float(feature.get("angle", 3)))
+        if angle <= 0 or angle >= 89:
+            raise ValueError("Draft angle must be greater than 0° and less than 89°.")
+        normal = neutral_face.normalAt().normalized()
+        if feature.get("reverse"):
+            normal = normal.multiply(-1)
+        center = neutral_face.Center()
+        direction = gp_Dir(normal.x, normal.y, normal.z)
+        neutral_plane = gp_Pln(gp_Pnt(center.x, center.y, center.z), direction)
+        builder = BRepOffsetAPI_DraftAngle(body.wrapped)
+        try:
+            for face in draft_faces:
+                builder.Add(face.wrapped, direction, math.radians(angle), neutral_plane, True)
+                if not builder.AddDone():
+                    raise ValueError("One of the selected faces cannot be drafted from this neutral plane.")
+            builder.Build()
+            if not builder.IsDone():
+                raise ValueError("The selected faces and angle did not create a valid draft.")
+            result = cq.Shape.cast(builder.Shape())
+        except ValueError:
+            raise
+        except Exception as error:
+            raise ValueError("The draft could not be created. Reduce the angle or select different faces.") from error
+    else:
+        raise ValueError(f"Unsupported body feature operation: {operation}")
+    if not result.isValid() or not result.Solids():
+        raise ValueError(f"The {operation} operation did not create a valid solid.")
+    return result.Solids()[0] if len(result.Solids()) == 1 else result
 
 
 def analyze_sketch_entities(entities: list[dict]) -> dict:
@@ -278,12 +378,19 @@ def analyze_sketch_entities(entities: list[dict]) -> dict:
     return {"closed": not issues and profile_count > 0, "profileCount": profile_count, "openEndpoints": open_endpoints, "issues": issues}
 
 
-def plane_for_sketch(sketch: dict, bodies: dict[str, cq.Shape]) -> cq.Plane:
+def plane_for_sketch(sketch: dict, bodies: dict[str, cq.Shape], references: dict[str, dict] | None = None) -> cq.Plane:
     plane_spec = sketch.get("plane", "XY")
     if isinstance(plane_spec, str):
         if plane_spec not in ("XY", "XZ", "YZ"):
             raise ValueError(f"Unsupported origin plane: {plane_spec}")
-        return cq.Plane.named(plane_spec)
+        plane = cq.Plane.named(plane_spec)
+        return cq.Plane(plane.origin, plane.xDir, plane.zDir.multiply(-1)) if sketch.get("flipped") else plane
+    if plane_spec.get("kind") == "reference-plane":
+        reference = (references or {}).get(plane_spec.get("referenceId"))
+        if not reference or reference.get("type") != "plane":
+            raise ValueError("The selected reference plane no longer exists.")
+        plane = cq.Plane(cq.Vector(*reference["origin"]), cq.Vector(*reference["xDir"]), cq.Vector(*reference["normal"]))
+        return cq.Plane(plane.origin, plane.xDir, plane.zDir.multiply(-1)) if sketch.get("flipped") else plane
     if plane_spec.get("kind") != "face":
         raise ValueError("Sketch plane must be an origin plane or a planar body face.")
     body_id = plane_spec.get("bodyId")
@@ -300,7 +407,8 @@ def plane_for_sketch(sketch: dict, bodies: dict[str, cq.Shape]) -> cq.Plane:
         normal = face.normalAt().normalized()
         reference = cq.Vector(1, 0, 0) if abs(normal.x) < 0.9 else cq.Vector(0, 1, 0)
         x_direction = (reference - normal.multiply(reference.dot(normal))).normalized()
-        return cq.Plane(face.Center(), x_direction, normal)
+        plane = cq.Plane(face.Center(), x_direction, normal)
+        return cq.Plane(plane.origin, plane.xDir, plane.zDir.multiply(-1)) if sketch.get("flipped") else plane
     except Exception as error:
         raise ValueError("Sketches can currently be attached only to planar body faces.") from error
 
@@ -338,7 +446,7 @@ def sketch_curve_payload(sketch: dict, plane: cq.Plane) -> dict:
                 points = tessellated_edge_points(cq.Wire.makeEllipse(float(entity["rx"]), float(entity["ry"]), vector(entity["c"], plane), plane.zDir, plane.xDir).Edges()[0])
             else:
                 continue
-            paths.append({"id": entity.get("id"), "construction": bool(entity.get("construction")), "points": [[point.x, point.y, point.z] for point in points]})
+            paths.append({"id": entity.get("id"), "type": entity_type, "construction": bool(entity.get("construction")), "points": [[point.x, point.y, point.z] for point in points]})
         except Exception:
             continue
     return {
@@ -355,19 +463,72 @@ def sketch_curve_payload(sketch: dict, plane: cq.Plane) -> dict:
     }
 
 
+def resolve_revolve_axis(feature: dict, sketches: dict[str, dict], bodies: dict[str, cq.Shape], references: dict[str, dict] | None = None) -> dict | None:
+    reference = feature.get("axis")
+    if not isinstance(reference, dict):
+        return None
+    kind = reference.get("kind")
+    if kind == "origin-axis":
+        directions = {"x": ((-1.0, 0.0, 0.0), (1.0, 0.0, 0.0)), "y": ((0.0, -1.0, 0.0), (0.0, 1.0, 0.0)), "z": ((0.0, 0.0, -1.0), (0.0, 0.0, 1.0))}
+        if reference.get("axis") not in directions:
+            raise ValueError("The selected origin axis is not available.")
+        start, end = directions[reference["axis"]]
+        return {"start": list(start), "end": list(end)}
+    if kind == "sketch-line":
+        sketch = sketches.get(reference.get("sketchId"))
+        if not sketch:
+            raise ValueError("The sketch containing the revolve axis no longer exists.")
+        entity = next((item for item in sketch.get("entities", []) if item.get("id") == reference.get("entityId")), None)
+        if not entity or entity.get("type") != "line":
+            raise ValueError("The selected sketch line no longer exists.")
+        axis_plane = plane_for_sketch(sketch, bodies, references)
+        start, end = vector(entity["a"], axis_plane), vector(entity["b"], axis_plane)
+        return {"start": [start.x, start.y, start.z], "end": [end.x, end.y, end.z]}
+    if kind == "model-edge":
+        body = bodies.get(reference.get("bodyId"))
+        edge_index = int(reference.get("edgeIndex", 0))
+        if not body or edge_index < 1 or edge_index > len(body.Edges()):
+            raise ValueError("The selected revolve edge no longer exists after rebuilding earlier features.")
+        edge = body.Edges()[edge_index - 1]
+        if edge.geomType() != "LINE":
+            raise ValueError("A revolve axis must be a straight model edge.")
+        vertices = edge.Vertices()
+        if len(vertices) < 2:
+            raise ValueError("The selected revolve edge has no usable length.")
+        start, end = vertices[0].Center(), vertices[-1].Center()
+        return {"start": [start.x, start.y, start.z], "end": [end.x, end.y, end.z]}
+    if kind == "reference-axis":
+        axis = (references or {}).get(reference.get("referenceId"))
+        if not axis or axis.get("type") != "axis":
+            raise ValueError("The selected reference axis no longer exists.")
+        origin = cq.Vector(*axis["origin"]); direction = cq.Vector(*axis["direction"]).normalized()
+        start, end = origin.sub(direction), origin.add(direction)
+        return {"start": [start.x, start.y, start.z], "end": [end.x, end.y, end.z]}
+    raise ValueError("The selected revolve axis reference is not supported.")
+
+
 def build_document(payload: dict) -> tuple[dict[str, cq.Shape], list[dict], list[dict]]:
     sketches = {sketch["id"]: sketch for sketch in payload.get("sketches", [])}
+    references = {reference["id"]: reference for reference in payload.get("referenceGeometry", [])}
     bodies: dict[str, cq.Shape] = {}
     plane_cache: dict[str, cq.Plane] = {}
     feature_results = []
     for feature in payload.get("features", []):
+        if feature.get("type") in ("fillet", "chamfer", "draft"):
+            body_id = feature.get("targetBodyId")
+            if body_id not in bodies:
+                raise ValueError(f"Feature {feature.get('name', feature.get('id'))} references a missing target body.")
+            bodies[body_id] = apply_body_feature(bodies[body_id], feature)
+            feature_results.append({"id": feature.get("id"), "bodyId": body_id})
+            continue
         sketch_id = feature.get("sketchId")
         if sketch_id not in sketches:
             raise ValueError(f"Feature {feature.get('name', feature.get('id'))} references a missing sketch.")
         sketch = sketches[sketch_id]
-        plane = plane_for_sketch(sketch, bodies)
+        plane = plane_for_sketch(sketch, bodies, references)
         plane_cache[sketch_id] = plane
-        tool = make_feature({**feature, "operation": feature.get("type"), "entities": sketch.get("entities", [])}, plane)
+        axis_line = resolve_revolve_axis(feature, sketches, bodies, references) if feature.get("type") == "revolve" else None
+        tool = make_feature({**feature, "operation": feature.get("type"), "entities": sketch.get("entities", []), **({"axisLine": axis_line} if axis_line else {})}, plane)
         tool_shape = tool.Solids()[0] if len(tool.Solids()) == 1 else tool
         combine = feature.get("combine", "new")
         if combine == "new":
@@ -386,47 +547,93 @@ def build_document(payload: dict) -> tuple[dict[str, cq.Shape], list[dict], list
     sketch_payloads = []
     for sketch in sketches.values():
         try:
-            plane = plane_cache.get(sketch["id"]) or plane_for_sketch(sketch, bodies)
+            plane = plane_cache.get(sketch["id"]) or plane_for_sketch(sketch, bodies, references)
             sketch_payloads.append(sketch_curve_payload(sketch, plane))
         except ValueError:
             sketch_payloads.append({"id": sketch["id"], "name": sketch.get("name", "Sketch"), "visible": False, "paths": []})
     return bodies, sketch_payloads, feature_results
 
 
+def face_selection_metadata(face: cq.Face) -> dict:
+    center = face.Center()
+    try:
+        normal = face.normalAt().normalized()
+        normal_payload = [normal.x, normal.y, normal.z]
+    except Exception:
+        normal_payload = [0.0, 0.0, 0.0]
+    geometry_type = face.geomType()
+    metadata = {"center": [center.x, center.y, center.z], "normal": normal_payload, "planar": geometry_type == "PLANE", "geometryType": geometry_type}
+    try:
+        adaptor = BRepAdaptor_Surface(face.wrapped)
+        surface = adaptor.Cylinder() if geometry_type == "CYLINDER" else adaptor.Cone() if geometry_type == "CONE" else adaptor.Torus() if geometry_type == "TORUS" else None
+        if surface:
+            axis = surface.Axis(); origin = axis.Location(); direction = axis.Direction()
+            metadata.update({"axisOrigin": [origin.X(), origin.Y(), origin.Z()], "axisDirection": [direction.X(), direction.Y(), direction.Z()], "axisKind": "center"})
+    except Exception:
+        pass
+    return metadata
+
+
+def edge_selection_metadata(edge: cq.Edge) -> dict:
+    geometry_type = edge.geomType()
+    try:
+        if geometry_type in ("CIRCLE", "ELLIPSE"):
+            adaptor = BRepAdaptor_Curve(edge.wrapped)
+            curve = adaptor.Circle() if geometry_type == "CIRCLE" else adaptor.Ellipse()
+            axis = curve.Axis(); origin = axis.Location(); direction = axis.Direction()
+            return {"geometryType": geometry_type, "axisOrigin": [origin.X(), origin.Y(), origin.Z()], "axisDirection": [direction.X(), direction.Y(), direction.Z()], "axisKind": "center"}
+        origin = edge.positionAt(0.5); direction = edge.tangentAt(0.5).normalized()
+        return {"geometryType": geometry_type, "axisOrigin": [origin.x, origin.y, origin.z], "axisDirection": [direction.x, direction.y, direction.z], "axisKind": "coincident" if geometry_type == "LINE" else "tangent"}
+    except Exception:
+        return {"geometryType": geometry_type}
+
+
 def document_payload(payload: dict) -> dict:
     bodies, sketches, feature_results = build_document(payload)
+    references = {reference["id"]: reference for reference in payload.get("referenceGeometry", [])}
     faces = []
     edges = []
     for body_id, body in bodies.items():
         for index, face in enumerate(body.Faces(), start=1):
             vertices, triangles = face.tessellate(0.15, 0.2)
-            faces.append({"id": f"{body_id}:face-{index}", "bodyId": body_id, "faceIndex": index, "vertices": [[point.x, point.y, point.z] for point in vertices], "triangles": [list(triangle) for triangle in triangles]})
+            faces.append({"id": f"{body_id}:face-{index}", "bodyId": body_id, "faceIndex": index, "vertices": [[point.x, point.y, point.z] for point in vertices], "triangles": [list(triangle) for triangle in triangles], **face_selection_metadata(face)})
         for index, edge in enumerate(body.Edges(), start=1):
             points = tessellated_edge_points(edge)
             if len(points) > 1:
-                edges.append({"id": f"{body_id}:edge-{index}", "bodyId": body_id, "edgeIndex": index, "points": [[point.x, point.y, point.z] for point in points]})
+                edges.append({"id": f"{body_id}:edge-{index}", "bodyId": body_id, "edgeIndex": index, "linear": edge.geomType() == "LINE", "points": [[point.x, point.y, point.z] for point in points], **edge_selection_metadata(edge)})
     preview_faces = []
+    preview_target_body_id = None
     preview_feature = payload.get("previewFeature")
     if preview_feature:
-        sketch_map = {sketch["id"]: sketch for sketch in payload.get("sketches", [])}
-        preview_sketch = sketch_map.get(preview_feature.get("sketchId"))
-        if preview_sketch:
-            preview_plane = plane_for_sketch(preview_sketch, bodies)
-            preview_shape = make_feature({**preview_feature, "operation": preview_feature.get("type", "extrude"), "entities": preview_sketch.get("entities", [])}, preview_plane)
-            target_body = bodies.get(preview_feature.get("targetBodyId"))
-            if target_body and preview_feature.get("combine") == "cut":
-                preview_shape = preview_shape.intersect(target_body)
-            elif target_body and preview_feature.get("combine") == "union":
-                preview_shape = preview_shape.cut(target_body)
+        preview_shape = None
+        if preview_feature.get("type") in ("fillet", "chamfer", "draft"):
+            preview_target_body_id = preview_feature.get("targetBodyId")
+            target_body = bodies.get(preview_target_body_id)
+            if target_body:
+                preview_shape = apply_body_feature(target_body, preview_feature)
+        else:
+            sketch_map = {sketch["id"]: sketch for sketch in payload.get("sketches", [])}
+            preview_sketch = sketch_map.get(preview_feature.get("sketchId"))
+            if preview_sketch:
+                preview_plane = plane_for_sketch(preview_sketch, bodies, references)
+                preview_axis_line = resolve_revolve_axis(preview_feature, sketch_map, bodies, references) if preview_feature.get("type") == "revolve" else None
+                preview_shape = make_feature({**preview_feature, "operation": preview_feature.get("type", "extrude"), "entities": preview_sketch.get("entities", []), **({"axisLine": preview_axis_line} if preview_axis_line else {})}, preview_plane)
+                target_body = bodies.get(preview_feature.get("targetBodyId"))
+                if target_body and preview_feature.get("combine") == "cut":
+                    preview_shape = preview_shape.intersect(target_body)
+                elif target_body and preview_feature.get("combine") == "union":
+                    preview_shape = preview_shape.cut(target_body)
+        if preview_shape:
             for index, face in enumerate(preview_shape.Faces(), start=1):
                 vertices, triangles = face.tessellate(0.15, 0.2)
-                preview_faces.append({"id": f"preview:face-{index}", "bodyId": "preview", "faceIndex": index, "vertices": [[point.x, point.y, point.z] for point in vertices], "triangles": [list(triangle) for triangle in triangles]})
+                preview_faces.append({"id": f"preview:face-{index}", "bodyId": "preview", "faceIndex": index, "vertices": [[point.x, point.y, point.z] for point in vertices], "triangles": [list(triangle) for triangle in triangles], **face_selection_metadata(face)})
     compound = cq.Compound.makeCompound(list(bodies.values())) if bodies else None
     bounds = compound.BoundingBox() if compound else None
     return {
         "faces": faces,
         "edges": edges,
         "previewFaces": preview_faces,
+        "previewTargetBodyId": preview_target_body_id,
         "sketches": sketches,
         "featureResults": feature_results,
         "properties": {
@@ -518,7 +725,7 @@ def export_box(
     return Response(
         content=content,
         media_type="model/step",
-        headers={"Content-Disposition": 'attachment; filename="basic-cad-part.step"'},
+        headers={"Content-Disposition": 'attachment; filename="lucascad-part.step"'},
     )
 
 
@@ -535,7 +742,7 @@ def export_feature(payload: dict = Body(...)) -> Response:
         content = path.read_bytes()
     finally:
         path.unlink(missing_ok=True)
-    return Response(content=content, media_type="model/step", headers={"Content-Disposition": 'attachment; filename="basic-cad-feature.step"'})
+    return Response(content=content, media_type="model/step", headers={"Content-Disposition": 'attachment; filename="lucascad-feature.step"'})
 
 
 @app.post("/api/export/document.step")
@@ -554,4 +761,4 @@ def export_document(payload: dict = Body(...)) -> Response:
         content = path.read_bytes()
     finally:
         path.unlink(missing_ok=True)
-    return Response(content=content, media_type="model/step", headers={"Content-Disposition": 'attachment; filename="basic-cad-document.step"'})
+    return Response(content=content, media_type="model/step", headers={"Content-Disposition": 'attachment; filename="lucascad-document.step"'})

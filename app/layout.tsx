@@ -4,8 +4,8 @@ import "./dialogs.css";
 import "./modeling.css";
 
 export const metadata: Metadata = {
-  title: "Basic CAD — Parametric solid modeling",
-  description: "A local-first, browser-driven parametric CAD workspace.",
+  title: "LucasCad — Parametric solid modeling",
+  description: "LucasCad is a local-first, browser-driven parametric CAD workspace.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

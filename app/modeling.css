@@ -398,6 +398,7 @@
   font-size: 16px;
   line-height: 1;
 }
+.diameter-dimension-icon{display:grid;place-items:center;width:18px;height:18px;color:#62d7ff;font:700 18px/1 Georgia,serif}.diameter-constraint .constraint-measure{stroke:#62d7ff}.diameter-constraint .constraint-extension{stroke-dasharray:2 2}.sketch-canvas.tool-diameter-dimension .sketch-entity.constraint-selectable{cursor:crosshair}.sketch-canvas.tool-diameter-dimension .sketch-entity.constraint-selectable:hover>circle{filter:drop-shadow(0 0 3px #62d7ff);stroke:#ffd36a}
 
 .axis-constraint-icon { display:inline-block; width:14px; height:14px; position:relative; }
 .axis-constraint-icon::after { content:""; position:absolute; inset:6px 1px auto; border-top:2px solid #71d6f7; }

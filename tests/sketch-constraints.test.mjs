@@ -10,6 +10,8 @@ import {
   cycleLinearOrientation,
   defaultLinearDimensionPosition,
   defaultLinearOrientation,
+  diameterDimensionLayout,
+  diameterDimensionValue,
   linearDimensionLayout,
   linearDimensionValue,
   linearOrientationOptions,
@@ -18,6 +20,15 @@ import {
   targetPointForLinearValue,
   validLinearDimensionPair,
 } from "../app/components/sketchConstraints.ts";
+
+test("diameter dimensions span the selected circle and report its driving value", () => {
+  const geometry = [{ id: "circle-1", type: "circle", c: { x: 5, y: -3 }, r: 12 }];
+  const layout = diameterDimensionLayout("circle-1", { x: 30, y: -3 }, geometry);
+  assert.equal(diameterDimensionValue("circle-1", geometry), 24);
+  assert.deepEqual(layout.first, { x: -7, y: -3 });
+  assert.deepEqual(layout.second, { x: 17, y: -3 });
+  assert.deepEqual(layout.label, { x: 30, y: -3 });
+});
 
 test("the closest visible target wins when a sketch line overlaps an axis hit area", () => {
   const horizontal = { id: "bottom", type: "line", a: { x: -30, y: -8 }, b: { x: 30, y: -8 } };

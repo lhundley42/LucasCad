@@ -6,7 +6,7 @@ export type GlobalAppSettings = {
   unitSystem: "metric" | "imperial";
 };
 
-export const GLOBAL_SETTINGS_STORAGE_KEY = "basic-cad:global-settings";
+export const GLOBAL_SETTINGS_STORAGE_KEY = "lucascad:global-settings";
 
 export const DEFAULT_GLOBAL_SETTINGS: GlobalAppSettings = {
   sketchDimensionTextScale: 0.5,

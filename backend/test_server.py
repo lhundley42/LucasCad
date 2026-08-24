@@ -1,10 +1,11 @@
+import math
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import cadquery as cq
 from fastapi.testclient import TestClient
 
-from server import app
+from server import app, face_selection_metadata
 
 
 client = TestClient(app)
@@ -23,6 +24,16 @@ def test_box_geometry_properties():
     assert payload["properties"]["solidCount"] == 1
     assert payload["properties"]["volume"] == 120000
     assert len(payload["faces"]) == 6
+
+
+def test_flipped_origin_sketch_reverses_its_frame_normal():
+    normal = client.post("/api/document", json={"sketches": [{"id": "normal", "plane": "XY", "entities": []}], "features": []})
+    flipped = client.post("/api/document", json={"sketches": [{"id": "flipped", "plane": "XY", "flipped": True, "entities": []}], "features": []})
+    assert normal.status_code == 200
+    assert flipped.status_code == 200
+    normal_direction = normal.json()["sketches"][0]["frame"]["normal"]
+    flipped_direction = flipped.json()["sketches"][0]["frame"]["normal"]
+    assert flipped_direction == [-component for component in normal_direction]
 
 
 def test_step_export_is_step_exchange_file():
@@ -168,6 +179,72 @@ def test_closed_sketch_revolves_around_selected_construction_axis():
     assert round(payload["properties"]["volume"], 3) == round(3.141592653589793 * (30**2 - 10**2) * 40, 3)
 
 
+def test_document_revolve_tracks_a_selected_sketch_line_axis_reference():
+    entities = rectangle(10, -20, 30, 20)
+    entities.append({"id": "axis-line", "type": "line", "a": {"x": 0, "y": -50}, "b": {"x": 0, "y": 50}, "construction": True})
+    result = client.post("/api/document", json={
+        "sketches": [{"id": "profile", "plane": "XY", "entities": entities}],
+        "features": [{
+            "id": "revolve", "type": "revolve", "sketchId": "profile", "combine": "new", "bodyId": "body-1", "angle": 360,
+            "axis": {"kind": "sketch-line", "sketchId": "profile", "entityId": "axis-line", "label": "Sketch 1 · line"},
+        }],
+    })
+    assert result.status_code == 200, result.text
+    assert result.json()["properties"]["solidCount"] == 1
+    assert round(result.json()["properties"]["volume"], 3) == round(math.pi * (30**2 - 10**2) * 40, 3)
+
+
+def test_document_revolve_accepts_a_global_origin_axis_reference():
+    result = client.post("/api/document", json={
+        "sketches": [{"id": "profile", "plane": "XY", "entities": rectangle(10, -20, 30, 20)}],
+        "features": [{
+            "id": "revolve", "type": "revolve", "sketchId": "profile", "combine": "new", "bodyId": "body-1", "angle": 360,
+            "axis": {"kind": "origin-axis", "axis": "y", "label": "Origin Y axis"},
+        }],
+    })
+    assert result.status_code == 200, result.text
+    assert result.json()["properties"]["solidCount"] == 1
+
+
+def test_document_revolve_accepts_a_coplanar_straight_model_edge_reference():
+    result = client.post("/api/document", json={
+        "sketches": [
+            {"id": "base", "plane": "XY", "entities": rectangle(-10, -10, 10, 10)},
+            {"id": "profile", "plane": {"kind": "face", "bodyId": "base-body", "faceIndex": 1, "faceId": "base-body:face-1"}, "entities": rectangle(20, 5, 30, 10)},
+        ],
+        "features": [
+            {"id": "extrude", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "base-body", "distance": 10},
+            {
+                "id": "revolve", "type": "revolve", "sketchId": "profile", "combine": "new", "bodyId": "turned-body", "angle": 360,
+                "axis": {"kind": "model-edge", "bodyId": "base-body", "edgeIndex": 3, "label": "Base body · edge 3"},
+            },
+        ],
+    })
+    assert result.status_code == 200, result.text
+    assert result.json()["properties"]["bodyCount"] == 2
+
+
+def test_reference_plane_can_support_a_rebuildable_sketch_and_extrusion():
+    result = client.post("/api/document", json={
+        "referenceGeometry": [{"id": "plane-1", "name": "Plane 1", "type": "plane", "origin": [0, 0, 12], "normal": [0, 0, 1], "xDir": [1, 0, 0], "sourceLabel": "XY origin plane", "visible": True}],
+        "sketches": [{"id": "profile", "plane": {"kind": "reference-plane", "referenceId": "plane-1"}, "entities": rectangle(-5, -4, 5, 4)}],
+        "features": [{"id": "extrude", "type": "extrude", "sketchId": "profile", "combine": "new", "bodyId": "body-1", "distance": 5}],
+    })
+    assert result.status_code == 200, result.text
+    assert result.json()["properties"]["bodyCount"] == 1
+    assert result.json()["sketches"][0]["frame"]["origin"] == [0.0, 0.0, 12.0]
+
+
+def test_reference_axis_can_drive_a_revolve_feature():
+    result = client.post("/api/document", json={
+        "referenceGeometry": [{"id": "axis-1", "name": "Axis 1", "type": "axis", "origin": [0, 0, 0], "direction": [0, 1, 0], "sourceLabel": "Origin Y axis", "visible": True}],
+        "sketches": [{"id": "profile", "plane": "XY", "entities": rectangle(10, -20, 30, 20)}],
+        "features": [{"id": "revolve", "type": "revolve", "sketchId": "profile", "combine": "new", "bodyId": "body-1", "angle": 360, "axis": {"kind": "reference-axis", "referenceId": "axis-1", "label": "Axis 1"}}],
+    })
+    assert result.status_code == 200, result.text
+    assert result.json()["properties"]["solidCount"] == 1
+
+
 def test_open_sketch_is_rejected_with_actionable_message():
     result = client.post("/api/model", json={"operation": "extrude", "distance": 20, "entities": [{"id": "line", "type": "line", "a": {"x": 0, "y": 0}, "b": {"x": 10, "y": 0}}]})
     assert result.status_code == 422
@@ -209,6 +286,31 @@ def test_document_replays_new_body_and_cut_feature():
     assert all(len(edge["points"]) >= 2 for edge in payload["edges"])
 
 
+def test_document_reports_axis_metadata_for_every_edge_and_round_surfaces():
+    document = {
+        "sketches": [{"id": "round", "plane": "XY", "entities": [{"id": "circle", "type": "circle", "c": {"x": 0, "y": 0}, "r": 10}]}],
+        "features": [{"id": "extrude-round", "type": "extrude", "sketchId": "round", "combine": "new", "bodyId": "body-1", "distance": 20}],
+    }
+    result = client.post("/api/document", json=document)
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert all(edge.get("axisOrigin") and edge.get("axisDirection") for edge in payload["edges"])
+    circular_edges = [edge for edge in payload["edges"] if edge.get("geometryType") == "CIRCLE"]
+    assert circular_edges and all(edge["axisKind"] == "center" for edge in circular_edges)
+    cylindrical_faces = [face for face in payload["faces"] if face.get("geometryType") == "CYLINDER"]
+    assert cylindrical_faces and all(face.get("axisOrigin") and face.get("axisDirection") and face.get("axisKind") == "center" for face in cylindrical_faces)
+
+
+def test_toroidal_surface_reports_its_center_axis():
+    torus = cq.Workplane("XZ").moveTo(20, 0).circle(5).revolve(360, (0, 0), (0, 1)).val()
+    toroidal_face = next(face for face in torus.Faces() if face.geomType() == "TORUS")
+    metadata = face_selection_metadata(toroidal_face)
+    assert metadata["geometryType"] == "TORUS"
+    assert metadata["axisKind"] == "center"
+    assert metadata["axisOrigin"] == [0.0, 0.0, 0.0]
+    assert metadata["axisDirection"] == [0.0, 0.0, 1.0]
+
+
 def test_document_unions_an_overlapping_profile_into_the_target_body():
     document = {
         "sketches": [
@@ -224,6 +326,96 @@ def test_document_unions_an_overlapping_profile_into_the_target_body():
     assert result.status_code == 200, result.text
     assert result.json()["properties"]["bodyCount"] == 1
     assert round(result.json()["properties"]["volume"], 5) == 128000
+
+
+def test_document_applies_constant_radius_fillet_to_selected_cube_edge():
+    document = {
+        "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],
+        "features": [
+            {"id": "base-feature", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "body-1", "distance": 20},
+            {"id": "fillet-1", "type": "fillet", "targetBodyId": "body-1", "edgeIndices": [1], "radius": 2},
+        ],
+    }
+    result = client.post("/api/document", json=document)
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert payload["properties"]["valid"] is True
+    assert payload["properties"]["bodyCount"] == 1
+    assert payload["properties"]["edgeCount"] > 12
+    assert payload["properties"]["volume"] < 24000
+
+
+def test_document_applies_symmetric_chamfer_to_selected_cube_edge():
+    document = {
+        "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],
+        "features": [
+            {"id": "base-feature", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "body-1", "distance": 20},
+            {"id": "chamfer-1", "type": "chamfer", "targetBodyId": "body-1", "edgeIndices": [1], "distance": 2},
+        ],
+    }
+    result = client.post("/api/document", json=document)
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert payload["properties"]["valid"] is True
+    assert payload["properties"]["bodyCount"] == 1
+    assert payload["properties"]["edgeCount"] > 12
+    assert payload["properties"]["volume"] < 24000
+
+
+def test_document_applies_distance_distance_chamfer_to_selected_cube_edge():
+    document = {
+        "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],
+        "features": [
+            {"id": "base-feature", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "body-1", "distance": 20},
+            {"id": "chamfer-1", "type": "chamfer", "targetBodyId": "body-1", "edgeIndices": [1], "method": "distance-distance", "distance": 2, "distance2": 4},
+        ],
+    }
+    result = client.post("/api/document", json=document)
+    assert result.status_code == 200, result.text
+    assert 0 < result.json()["properties"]["volume"] < 24000
+
+
+def test_document_applies_angle_distance_chamfer_and_supports_flipping_sides():
+    base = {
+        "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],
+        "features": [{"id": "base-feature", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "body-1", "distance": 20}],
+    }
+    preview = {"type": "chamfer", "targetBodyId": "body-1", "edgeIndices": [1], "method": "angle-distance", "distance": 2, "distance2": 2, "angle": 30, "flip": False}
+    forward = client.post("/api/document", json={**base, "previewFeature": preview})
+    flipped = client.post("/api/document", json={**base, "previewFeature": {**preview, "flip": True}})
+    assert forward.status_code == 200, forward.text
+    assert flipped.status_code == 200, flipped.text
+    assert forward.json()["previewFaces"]
+    assert flipped.json()["previewFaces"]
+
+
+def test_document_drafts_cube_side_faces_from_neutral_face():
+    document = {
+        "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],
+        "features": [
+            {"id": "base-feature", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "body-1", "distance": 20},
+            {"id": "draft-1", "type": "draft", "targetBodyId": "body-1", "neutralFaceIndex": 5, "faceIndices": [1, 2, 3, 4], "angle": 3, "reverse": False},
+        ],
+    }
+    result = client.post("/api/document", json=document)
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert payload["properties"]["valid"] is True
+    assert payload["properties"]["bodyCount"] == 1
+    assert payload["properties"]["faceCount"] == 6
+    assert payload["properties"]["volume"] != 24000
+
+
+def test_body_feature_preview_replaces_target_with_phantom_result():
+    document = {
+        "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],
+        "features": [{"id": "base-feature", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "body-1", "distance": 20}],
+        "previewFeature": {"type": "fillet", "targetBodyId": "body-1", "edgeIndices": [1], "radius": 2},
+    }
+    result = client.post("/api/document", json=document)
+    assert result.status_code == 200, result.text
+    assert result.json()["previewTargetBodyId"] == "body-1"
+    assert len(result.json()["previewFaces"]) > 6
 
 
 def test_sketch_can_be_attached_to_a_planar_body_face():

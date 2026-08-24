@@ -45,6 +45,7 @@ export default defineConfig(async () => {
 
   return {
     server: {
+      allowedHosts: ["lucascad.localhost"],
       watch: {
         ignored: ["**/.venv/**", "**/__pycache__/**"],
         ...(isCodexSeatbeltSandbox

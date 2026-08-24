@@ -62,6 +62,9 @@ test("modeling ribbon starts sketches and validates profiles before features", a
   assert.match(page, /highlightWidthPx=\{globalSettings\.sketchHighlightWidthPx\}/);
   assert.match(page, /Default grid square/);
   assert.match(page, /Display units/);
+  assert.match(page, /gridSquareInput/);
+  assert.match(page, /setGridSquareInput\(event\.target\.value\)/);
+  assert.match(page, /onBlur=\{commitGridSquareInput\}/);
   assert.match(page, /externalReferences=\{externalSketchReferences\}/);
 });
 
@@ -91,6 +94,9 @@ test("sketcher exposes profile tools, editable dimensions, and draggable control
   assert.match(sketcher, /draft\.length >= 3/);
   assert.match(sketcher, /Linear dimension constraint/);
   assert.match(sketcher, /Angular dimension constraint/);
+  assert.match(sketcher, /Diameter dimension constraint/);
+  assert.match(sketcher, /diameterDimensionLayout/);
+  assert.match(sketcher, /Diameter constraint value/);
   assert.match(sketcher, /Perpendicular constraint/);
   assert.match(sketcher, /sketch-command-group admin-group/);
   assert.match(sketcher, /sketch-command-group geometry-group/);
@@ -164,6 +170,142 @@ test("sketcher exposes profile tools, editable dimensions, and draggable control
   assert.match(page, /Highlight width for all hovered and selected sketch geometry/);
   assert.match(page, /constraints\?: SketchConstraint\[\]/);
   assert.match(page, /onConstraintsChange=\{updateSketchConstraints\}/);
+});
+
+test("LucasCad exposes SolidWorks-style fillet, chamfer, and neutral-plane draft features", async () => {
+  const [page, viewport, server, layout, css] = await Promise.all([
+    source("app/page.tsx"),
+    source("app/components/CadViewport.tsx"),
+    source("backend/server.py"),
+    source("app/layout.tsx"),
+    source("app/dialogs.css"),
+  ]);
+
+  assert.match(page, /<strong>LucasCad<\/strong>/);
+  assert.match(layout, /LucasCad — Parametric solid modeling/);
+  for (const tool of ["fillet", "chamfer", "draft"]) {
+    assert.match(page, new RegExp(`requestBodyFeature\\(\\"${tool}\\"\\)`));
+  }
+  assert.match(page, /Constant-radius fillet/);
+  assert.match(page, /Edge chamfer/);
+  assert.match(page, /Angle \/ distance/);
+  assert.match(page, /Distance \/ distance/);
+  assert.match(page, /onChamferPreviewParameterChange=\{updateChamferParameterFromArrow\}/);
+  assert.match(page, /Neutral-plane draft/);
+  assert.match(page, /selectedEdgeIds=/);
+  assert.match(page, /sketchSupportPicking=\{sketchSupportPicking\}/);
+  assert.match(page, /onSelectPlane=\{startSketchOnPlane\}/);
+  assert.match(page, /translucent origin plane in 3D/);
+  assert.match(page, /solidSelectionMode=/);
+  assert.match(page, /activeFeaturePreview/);
+  assert.match(page, /Keep clicking highlighted/);
+  assert.match(page, /Draft face selection workflow/);
+  assert.match(page, /Select in the 3D view/);
+  assert.match(page, /Step 2 is active/);
+  assert.match(css, /draft-feature-flyout/);
+  assert.match(css, /draft-workflow/);
+  assert.match(viewport, /visibleEdgeHit/);
+  assert.match(viewport, /originPlaneHits/);
+  assert.match(viewport, /visibleOriginPlaneHit/);
+  assert.match(viewport, /previewTargetBodyId/);
+  assert.match(viewport, /onSelectEdge/);
+  assert.match(viewport, /selectedFaceOverlay/);
+  assert.match(viewport, /draftCandidate/);
+  assert.match(server, /face_selection_metadata/);
+  assert.match(viewport, /chamferArrowHits/);
+  assert.match(viewport, /refreshChamferPreview/);
+  assert.match(viewport, /renderPreviewFaces/);
+  assert.match(server, /def apply_body_feature/);
+  assert.match(server, /BRepOffsetAPI_DraftAngle/);
+  assert.match(server, /selector\.fillet/);
+  assert.match(server, /selector\.chamfer/);
+});
+
+test("sketch planes can be flipped without moving their existing geometry", async () => {
+  const [page, viewport, server, css] = await Promise.all([
+    source("app/page.tsx"),
+    source("app/components/CadViewport.tsx"),
+    source("backend/server.py"),
+    source("app/globals.css"),
+  ]);
+
+  assert.match(page, /Flip Plane/);
+  assert.match(page, /flipSketchPlane/);
+  assert.match(page, /flipped: !sketch\.flipped/);
+  assert.match(page, /setSnapNormalRequest/);
+  assert.match(viewport, /flipped\?: boolean/);
+  assert.match(server, /sketch\.get\("flipped"\)/);
+  assert.match(css, /flip-plane-action/);
+});
+
+test("every feature can be edited and revolve axes are selected directly from geometry", async () => {
+  const [page, viewport, server, css] = await Promise.all([
+    source("app/page.tsx"),
+    source("app/components/CadViewport.tsx"),
+    source("backend/server.py"),
+    source("app/dialogs.css"),
+  ]);
+
+  assert.doesNotMatch(page, /type !== "revolve" && <button[^>]*>Edit feature/);
+  assert.match(page, /feature\.type !== "extrude" && feature\.type !== "revolve"/);
+  assert.match(page, /Select the revolve axis/);
+  assert.match(page, /straight sketch line, straight model edge, or global origin axis/);
+  assert.match(page, /onSelectRevolveAxis=\{selectRevolveAxis\}/);
+  assert.doesNotMatch(page, /<label>Axis<select/);
+  assert.match(viewport, /RevolveAxisReference/);
+  assert.match(viewport, /revolveAxisHits/);
+  assert.match(viewport, /kind: "origin-axis"/);
+  assert.match(viewport, /kind: "sketch-line"/);
+  assert.match(viewport, /kind: "model-edge"/);
+  assert.match(server, /resolve_revolve_axis/);
+  assert.match(server, /selected revolve axis must lie in the profile sketch plane/i);
+  assert.match(css, /revolve-axis-selection/);
+});
+
+test("the 3D ribbon groups create, modify, and persistent reference geometry tools", async () => {
+  const [page, viewport, server, globals, dialogs] = await Promise.all([
+    source("app/page.tsx"),
+    source("app/components/CadViewport.tsx"),
+    source("backend/server.py"),
+    source("app/globals.css"),
+    source("app/dialogs.css"),
+  ]);
+
+  for (const group of ["Create", "Modify", "Geometry"]) assert.match(page, new RegExp(`<b>${group}</b>`));
+  for (const tool of ["plane", "axis", "point"]) assert.match(page, new RegExp(`requestReferenceGeometry\\(\\"${tool}\\"\\)`));
+  assert.match(page, /Reference Geometry/);
+  assert.match(page, /Edit reference geometry/);
+  assert.match(page, /New sketch on plane/);
+  assert.match(page, /referenceGeometry/);
+  assert.match(page, /aria-label="Plane quick reference"/);
+  assert.match(page, /aria-pressed=\{active\}/);
+  assert.doesNotMatch(page, /<label>Quick reference<div className="reference-quick-options"/);
+  assert.match(page, /referenceGeometryForViewport/);
+  assert.match(page, /Select any planar reference/);
+  assert.match(page, /Signed offset distance/);
+  assert.match(page, /livePlaneOffset \?\? referenceDraft\.offset/);
+  assert.match(page, /referencePlanePicking=/);
+  assert.match(page, /onReferencePlaneOffsetChange=\{updateReferencePlaneOffsetFromArrow\}/);
+  assert.match(viewport, /ReferenceGeometryRecord/);
+  assert.match(viewport, /referencePlaneHits/);
+  assert.match(viewport, /referencePlaneArrowHits/);
+  assert.match(viewport, /referencePlanePreviewTargets/);
+  assert.match(viewport, /referencePlaneDrag/);
+  assert.match(viewport, /!referencePlanePicking \|\| object\.userData\.planar/);
+  assert.match(viewport, /onReferencePlaneOffsetChange\?\.\(offset, "preview"\)/);
+  assert.match(viewport, /kind: "reference-axis"/);
+  assert.match(page, /referenceAxisPicking=/);
+  assert.match(page, /cylinders, cones, and toroidal faces use their center axis/);
+  assert.match(viewport, /axisOrigin/);
+  assert.match(server, /edge_selection_metadata/);
+  assert.match(server, /BRepAdaptor_Surface/);
+  assert.match(server, /BRepAdaptor_Curve/);
+  assert.match(server, /kind"\) == "reference-plane"/);
+  assert.match(server, /kind == "reference-axis"/);
+  assert.match(globals, /model-command-group/);
+  assert.match(globals, /geometry-command-group/);
+  assert.match(dialogs, /reference-geometry-flyout/);
+  assert.match(dialogs, /reference-quick-options button\.active/);
 });
 
 test("placed linear dimensions remain draggable while the dimension tool is active", async () => {
