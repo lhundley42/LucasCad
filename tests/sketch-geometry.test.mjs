@@ -1,7 +1,51 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { automaticSplineHandles, cornerLines, deleteSplinePoint, entityInSelectionBox, extendEntityToTarget, insertSplinePoint, mirrorSketchEntity, nearestGridVertex, normalizedSelectionBox, perpendicularLineToReference, pointInSelectionBox, sampleSplineEntity, sketchRelationIsSatisfied, synchronizeMirrorLinks, translateSketchEntity, trimEntityAtPoint } from "../app/components/sketchGeometry.ts";
+import { analyzeSketchContours, automaticSplineHandles, circularPatternSketchEntity, circularPatternStep, cornerEntities, cornerLines, deleteSplinePoint, entityInSelectionBox, extendEntityToTarget, insertSplinePoint, linearPatternSketchEntity, mirrorSketchEntity, nearestGridVertex, normalizedSelectionBox, perpendicularLineToReference, pointInSelectionBox, sampleSplineEntity, sketchRelationIsSatisfied, sketchStrokeHits, synchronizeMirrorLinks, synchronizePatternLinks, translateSketchEntity, trimEntityAtPoint } from "../app/components/sketchGeometry.ts";
+
+test("SketchCheck finds both endpoints of an isolated line", () => {
+  const result = analyzeSketchContours([{ id: "line", type: "line", a: { x: 0, y: 0 }, b: { x: 20, y: 0 } }]);
+  assert.equal(result.viable, false);
+  assert.equal(result.openEndpoints.length, 2);
+  assert.deepEqual(result.removalEntityIds, ["line"]);
+  assert.deepEqual(result.isolatedEntityIds, ["line"]);
+});
+
+test("SketchCheck preserves a closed contour while trimming its dangling branch", () => {
+  const entities = [
+    { id: "top", type: "line", a: { x: 0, y: 0 }, b: { x: 20, y: 0 } },
+    { id: "right", type: "line", a: { x: 20, y: 0 }, b: { x: 20, y: 20 } },
+    { id: "bottom", type: "line", a: { x: 20, y: 20 }, b: { x: 0, y: 20 } },
+    { id: "left", type: "line", a: { x: 0, y: 20 }, b: { x: 0, y: 0 } },
+    { id: "tail", type: "line", a: { x: 20, y: 0 }, b: { x: 32, y: -8 } },
+  ];
+  const result = analyzeSketchContours(entities);
+  assert.equal(result.viable, false);
+  assert.equal(result.openEndpoints.length, 2);
+  assert.deepEqual(result.removalEntityIds, ["tail"]);
+  assert.deepEqual(result.isolatedEntityIds, []);
+  assert.ok(!result.removalEntityIds.includes("top"));
+});
+
+test("SketchCheck accepts closed primitives and ignores construction geometry", () => {
+  const result = analyzeSketchContours([
+    { id: "circle", type: "circle", c: { x: 0, y: 0 }, r: 12 },
+    { id: "construction", type: "line", a: { x: -30, y: 4 }, b: { x: 30, y: 4 }, construction: true },
+  ]);
+  assert.equal(result.viable, true);
+  assert.equal(result.openEndpoints.length, 0);
+  assert.equal(result.removalEntityIds.length, 0);
+});
+
+test("SketchCheck uses the modeling kernel endpoint tolerance", () => {
+  const result = analyzeSketchContours([
+    { id: "a", type: "line", a: { x: 0, y: 0 }, b: { x: 10, y: 0 } },
+    { id: "b", type: "line", a: { x: 10.03, y: 0.02 }, b: { x: 5, y: 8 } },
+    { id: "c", type: "line", a: { x: 5, y: 8 }, b: { x: 0, y: 0 } },
+  ]);
+  assert.equal(result.viable, true);
+  assert.equal(result.openEndpoints.length, 0);
+});
 
 test("every independent grid vertex is reachable without skipping", () => {
   const spacing = 8;
@@ -50,6 +94,36 @@ test("mirror links update from either the parent or mirrored geometry", () => {
   const fromChild = synchronizeMirrorLinks(childEdited, [link], new Set(["copy"]));
   assert.deepEqual(fromChild.find((entity) => entity.id === "source").c, { x: 12, y: -6 });
   assert.equal(fromChild.find((entity) => entity.id === "source").r, 5);
+});
+
+test("linear and rectangular pattern transforms honor both referenced directions", () => {
+  const seed = { id: "seed", type: "circle", c: { x: 2, y: 3 }, r: 1 };
+  const copy = linearPatternSketchEntity(seed, { x: 1, y: 0 }, 10, 2, { x: 0, y: -1 }, 4, 3, "copy");
+  assert.deepEqual(copy.c, { x: 22, y: -9 });
+  assert.equal(copy.r, 1);
+});
+
+test("a linked linear pattern follows its direction reference and back-solves from an edited instance", () => {
+  const axis = { id: "axis", type: "line", a: { x: 0, y: 0 }, b: { x: 10, y: 0 } };
+  const seed = { id: "seed", type: "circle", c: { x: 1, y: 1 }, r: 2 };
+  const copy = linearPatternSketchEntity(seed, { x: 1, y: 0 }, 10, 1, { x: 0, y: 1 }, 0, 0, "copy");
+  const link = { id: "pattern", type: "linear-pattern", direction1: { kind: "entity", entityId: "axis", fallback: { x: 1, y: 0 } }, spacing1: 10, count1: 2, flip1: false, skipped: [], pairs: [{ sourceId: "seed", instances: [{ entityId: "copy", column: 1, row: 0 }] }] };
+  const rotatedAxis = { ...axis, b: { x: 0, y: 10 } };
+  const followed = synchronizePatternLinks([rotatedAxis, seed, copy], [link], new Set(["axis"]));
+  assert.deepEqual(followed.find((entity) => entity.id === "copy").c, { x: 1, y: 11 });
+  const childEdited = followed.map((entity) => entity.id === "copy" ? { ...entity, c: { x: 4, y: 20 }, r: 5 } : entity);
+  const backSolved = synchronizePatternLinks(childEdited, [link], new Set(["copy"]));
+  assert.deepEqual(backSolved.find((entity) => entity.id === "seed").c, { x: 4, y: 10 });
+  assert.equal(backSolved.find((entity) => entity.id === "seed").r, 5);
+});
+
+test("circular patterns distribute a full circle without duplicating the seed", () => {
+  assert.equal(circularPatternStep(4, 360), 90);
+  assert.equal(circularPatternStep(3, 180), 90);
+  const seed = { id: "seed", type: "line", a: { x: 10, y: 0 }, b: { x: 12, y: 0 } };
+  const copy = circularPatternSketchEntity(seed, { x: 0, y: 0 }, 90, true, "copy");
+  assert.ok(Math.abs(copy.a.x) < 1e-9); assert.deepEqual(copy.a.y, 10);
+  assert.ok(Math.abs(copy.b.x) < 1e-9); assert.deepEqual(copy.b.y, 12);
 });
 
 test("horizontal and vertical relation badges follow the live line geometry", () => {
@@ -118,6 +192,33 @@ test("an ellipse without intersections is preserved when trim is clicked", () =>
   assert.deepEqual(trimEntityAtPoint(ellipse, { x: 20, y: 0 }, [ellipse]), [ellipse]);
 });
 
+test("a bisecting line trims only the clicked section of a closed spline", () => {
+  const spline = { id: "spline", type: "spline", points: [{ x: -20, y: 0 }, { x: 0, y: 18 }, { x: 20, y: 0 }, { x: 0, y: -18 }, { x: -20, y: 0 }] };
+  const bisector = { id: "bisector", type: "line", a: { x: 0, y: -30 }, b: { x: 0, y: 30 } };
+  const remaining = trimEntityAtPoint(spline, { x: 18, y: 0 }, [spline, bisector]);
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].type, "spline");
+  assert.ok(remaining[0].points.every((point) => point.x <= 0.05));
+  assert.ok(remaining[0].relations.includes("Trimmed"));
+});
+
+test("a single intersection trims the selected end of an open spline", () => {
+  const spline = { id: "spline", type: "spline", points: [{ x: -20, y: 0 }, { x: 0, y: 12 }, { x: 20, y: 0 }] };
+  const cutter = { id: "cutter", type: "line", a: { x: 0, y: -20 }, b: { x: 0, y: 20 } };
+  const remaining = trimEntityAtPoint(spline, { x: 16, y: 2 }, [spline, cutter]);
+  assert.equal(remaining.length, 1);
+  assert.ok(remaining[0].points.every((point) => point.x <= 0.05));
+});
+
+test("trim strokes report every sketch entity crossed in drag order", () => {
+  const entities = [
+    { id: "left", type: "line", a: { x: -10, y: -10 }, b: { x: -10, y: 10 } },
+    { id: "spline", type: "spline", points: [{ x: 0, y: -10 }, { x: 4, y: 0 }, { x: 0, y: 10 }] },
+    { id: "right", type: "line", a: { x: 10, y: -10 }, b: { x: 10, y: 10 } },
+  ];
+  assert.deepEqual(sketchStrokeHits(entities, { x: -20, y: 0 }, { x: 20, y: 0 }).map((hit) => hit.entityId), ["left", "spline", "right"]);
+});
+
 test("extend lengthens the selected end of a line to its target geometry", () => {
   const source = { id: "source", type: "line", a: { x: 0, y: 0 }, b: { x: 10, y: 0 } };
   const target = { id: "target", type: "line", a: { x: 20, y: -5 }, b: { x: 20, y: 5 } };
@@ -167,6 +268,37 @@ test("corner rejects parallel line segments", () => {
   const first = { id: "first", type: "line", a: { x: 0, y: 0 }, b: { x: 10, y: 0 } };
   const second = { id: "second", type: "line", a: { x: 0, y: 5 }, b: { x: 10, y: 5 } };
   assert.equal(cornerLines(first, { x: 9, y: 0 }, second, { x: 9, y: 5 }), null);
+});
+
+test("corner extends the nearest spline end along its tangent to meet a line", () => {
+  const spline = { id: "spline", type: "spline", points: [{ x: 0, y: 0 }, { x: 40, y: -40 }, { x: 100, y: -40 }] };
+  const line = { id: "line", type: "line", a: { x: 10, y: 10 }, b: { x: 100, y: 10 } };
+  const result = cornerEntities(spline, { x: 45, y: -35 }, line, { x: 80, y: 10 });
+  assert.ok(result);
+  const [nextSpline, nextLine] = result;
+  assert.equal(nextSpline.type, "spline"); assert.equal(nextLine.type, "line");
+  assert.ok(Math.abs(nextSpline.points[0].x + 10) < 0.001); assert.ok(Math.abs(nextSpline.points[0].y - 10) < 0.001);
+  assert.deepEqual(nextLine.a, nextSpline.points[0]);
+  assert.ok(nextSpline.relations.includes("Corner")); assert.ok(nextLine.relations.includes("Corner"));
+  const tangentA = { x: nextSpline.points[1].x - nextSpline.handles[1].in.x, y: nextSpline.points[1].y - nextSpline.handles[1].in.y };
+  const tangentB = { x: nextSpline.handles[1].out.x - nextSpline.points[1].x, y: nextSpline.handles[1].out.y - nextSpline.points[1].y };
+  assert.ok(Math.abs(tangentA.x * tangentB.y - tangentA.y * tangentB.x) < 0.001);
+});
+
+test("corner accepts a line followed by a spline in either selection order", () => {
+  const line = { id: "line", type: "line", a: { x: 10, y: 10 }, b: { x: 100, y: 10 } };
+  const spline = { id: "spline", type: "spline", points: [{ x: 0, y: 0 }, { x: 40, y: -40 }, { x: 100, y: -40 }] };
+  const result = cornerEntities(line, { x: 80, y: 10 }, spline, { x: 45, y: -35 });
+  assert.ok(result); assert.equal(result[0].type, "line"); assert.equal(result[1].type, "spline"); assert.deepEqual(result[0].a, result[1].points[0]);
+});
+
+test("corner trims a spline and line to their existing intersection", () => {
+  const spline = { id: "spline", type: "spline", points: [{ x: -10, y: -10 }, { x: 10, y: 10 }] };
+  const line = { id: "line", type: "line", a: { x: -20, y: 0 }, b: { x: 20, y: 0 } };
+  const result = cornerEntities(spline, { x: -8, y: -8 }, line, { x: 15, y: 0 });
+  assert.ok(result); const [nextSpline, nextLine] = result;
+  assert.ok(Math.abs(nextSpline.points.at(-1).x) < 0.001); assert.ok(Math.abs(nextSpline.points.at(-1).y) < 0.001);
+  assert.deepEqual(nextLine.a, nextSpline.points.at(-1));
 });
 
 test("perpendicular relation rotates the second line to ninety degrees", () => {

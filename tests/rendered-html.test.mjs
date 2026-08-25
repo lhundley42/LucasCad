@@ -62,9 +62,9 @@ test("modeling ribbon starts sketches and validates profiles before features", a
   assert.match(page, /highlightWidthPx=\{globalSettings\.sketchHighlightWidthPx\}/);
   assert.match(page, /Default grid square/);
   assert.match(page, /Display units/);
-  assert.match(page, /gridSquareInput/);
-  assert.match(page, /setGridSquareInput\(event\.target\.value\)/);
-  assert.match(page, /onBlur=\{commitGridSquareInput\}/);
+  assert.match(page, /id="grid-square-size"/);
+  assert.match(page, /<BufferedNumberInput id="grid-square-size"/);
+  assert.match(page, /sketchGridSizeMm: Math\.max/);
   assert.match(page, /externalReferences=\{externalSketchReferences\}/);
 });
 
@@ -84,7 +84,7 @@ test("sketcher exposes profile tools, editable dimensions, and draggable control
   assert.match(sketcher, /className="control-point"/);
   assert.match(sketcher, /replaceConnectedPoint/);
   assert.match(sketcher, /trimEntityAtPoint/);
-  assert.match(sketcher, /cornerLines/);
+  assert.match(sketcher, /cornerEntities/);
   assert.match(sketcher, /Snap normal/);
   assert.match(sketcher, /viewWidth/);
   assert.match(sketcher, /trim-hit/);
@@ -172,7 +172,7 @@ test("sketcher exposes profile tools, editable dimensions, and draggable control
   assert.match(page, /onConstraintsChange=\{updateSketchConstraints\}/);
 });
 
-test("LucasCad exposes SolidWorks-style fillet, chamfer, and neutral-plane draft features", async () => {
+test("LucasCad exposes SolidWorks-style fillet, chamfer, neutral-plane draft, and shell features", async () => {
   const [page, viewport, server, layout, css] = await Promise.all([
     source("app/page.tsx"),
     source("app/components/CadViewport.tsx"),
@@ -183,7 +183,7 @@ test("LucasCad exposes SolidWorks-style fillet, chamfer, and neutral-plane draft
 
   assert.match(page, /<strong>LucasCad<\/strong>/);
   assert.match(layout, /LucasCad — Parametric solid modeling/);
-  for (const tool of ["fillet", "chamfer", "draft"]) {
+  for (const tool of ["fillet", "chamfer", "draft", "shell"]) {
     assert.match(page, new RegExp(`requestBodyFeature\\(\\"${tool}\\"\\)`));
   }
   assert.match(page, /Constant-radius fillet/);
@@ -192,6 +192,10 @@ test("LucasCad exposes SolidWorks-style fillet, chamfer, and neutral-plane draft
   assert.match(page, /Distance \/ distance/);
   assert.match(page, /onChamferPreviewParameterChange=\{updateChamferParameterFromArrow\}/);
   assert.match(page, /Neutral-plane draft/);
+  assert.match(page, /Uniform wall shell/);
+  assert.match(page, /Shell outward/);
+  assert.match(page, /Shell wall thickness/);
+  assert.match(page, /Faces to remove/);
   assert.match(page, /selectedEdgeIds=/);
   assert.match(page, /sketchSupportPicking=\{sketchSupportPicking\}/);
   assert.match(page, /onSelectPlane=\{startSketchOnPlane\}/);
@@ -219,6 +223,8 @@ test("LucasCad exposes SolidWorks-style fillet, chamfer, and neutral-plane draft
   assert.match(server, /BRepOffsetAPI_DraftAngle/);
   assert.match(server, /selector\.fillet/);
   assert.match(server, /selector\.chamfer/);
+  assert.match(server, /\.shell\(signed_thickness\)/);
+  assert.match(server, /make_planar_open_shell_fallback/);
 });
 
 test("sketch planes can be flipped without moving their existing geometry", async () => {
@@ -313,6 +319,12 @@ test("placed linear dimensions remain draggable while the dimension tool is acti
   assert.doesNotMatch(css, /tool-linear-dimension\s+\.linear-constraint:not\(\.preview\)[^{]*\{[^}]*pointer-events:\s*none/);
 });
 
+test("driving linear constraints accept zero distance", async () => {
+  const sketcher = await source("app/components/Sketcher.tsx");
+  assert.match(sketcher, /if \(enteredValue < 0\)/);
+  assert.match(sketcher, /constraint\.type === "diameter"[\s\S]*?!\(enteredValue > 0\)/);
+});
+
 test("splines self-snap closed without displaying generic relation glyphs", async () => {
   const sketcher = await source("app/components/Sketcher.tsx");
   assert.match(sketcher, /draftClosureCandidates/);
@@ -329,7 +341,8 @@ test("the sketch modification ribbon groups trim, extend, and corner", async () 
   assert.match(sketcher, /tool === "extend"/);
   assert.match(sketcher, /tool === "corner"/);
   assert.match(sketcher, /extendEntityToTarget/);
-  assert.match(sketcher, /Select two non-parallel line segments/);
+  assert.match(sketcher, /cornerEntities/);
+  assert.match(sketcher, /line and spline/);
 });
 
 test("sketch command group titles sit horizontally above their tool palettes", async () => {
@@ -337,6 +350,57 @@ test("sketch command group titles sit horizontally above their tool palettes", a
   assert.match(css, /\.sketch-command-group b[\s\S]*?display: flex/);
   assert.match(css, /\.sketch-command-tools \{ display:flex/);
   assert.doesNotMatch(css, /rotate\(-90deg\)/);
+});
+
+test("SketchCheck is a two-stage admin tool placed immediately before Finish", async () => {
+  const sketcher = await readFile("app/components/Sketcher.tsx", "utf8");
+  const css = await readFile("app/modeling.css", "utf8");
+  assert.match(sketcher, /label="SketchCheck"[\s\S]*?label="Finish"/);
+  assert.match(sketcher, /analyzeSketchContours\(entities\)/);
+  assert.match(sketcher, /sketchCheck\?\.openEndpoints\.map/);
+  assert.match(sketcher, /click SketchCheck again to repair/);
+  assert.match(css, /\.sketch-check-endpoint/);
+  assert.match(css, /\.sketch-entity\.sketch-check-open/);
+});
+
+test("model navigation uses an unrestricted picked-pivot virtual trackball", async () => {
+  const viewport = await readFile("app/components/CadViewport.tsx", "utf8");
+  const css = await readFile("app/modeling.css", "utf8");
+  assert.doesNotMatch(viewport, /TrackballControls/);
+  assert.doesNotMatch(viewport, /OrbitControls/);
+  assert.match(viewport, /class PickedPivotControls/);
+  assert.match(viewport, /PerspectiveCamera \| THREE\.OrthographicCamera/);
+  assert.match(viewport, /const controls = new PickedPivotControls\(camera, navigationElement\)/);
+  assert.match(viewport, /this\.camera\.top - this\.camera\.bottom/);
+  assert.match(viewport, /this\.camera\.zoom = THREE\.MathUtils\.clamp/);
+  assert.match(viewport, /event\.button !== 1 && event\.button !== 2/);
+  assert.match(viewport, /middlePressed = \(event\.buttons & 4\) !== 0/);
+  assert.match(viewport, /rightPressed = \(event\.buttons & 2\) !== 0/);
+  assert.match(viewport, /rightPressed \|\| middlePressed && event\.shiftKey \? "pan" : "rotate"/);
+  assert.match(viewport, /const activeMode = this\.dragModeFor\(event\)/);
+  assert.match(viewport, /camera\.position\.sub\(this\.target\)\.applyQuaternion\(rotation\)\.add\(this\.target\)/);
+  assert.match(viewport, /camera\.quaternion\.premultiply\(rotation\)/);
+  assert.match(viewport, /controls\.target\.copy\(point\); showPivot\(point\)/);
+  assert.doesNotMatch(viewport, /controls\.target\.copy\(point\); controls\.update\(\)/);
+  assert.match(viewport, /controls\.target\.set\(0, 0, 0\)/);
+  assert.match(viewport, /Center view on origin/);
+  assert.match(viewport, /Snap to nearest planar view/);
+  assert.match(viewport, /nearestRenderedPoint/);
+  assert.match(viewport, /window\.document\.createElement\("div"\)/);
+  assert.doesNotMatch(viewport, /const viewMenu = document\.createElement/);
+  assert.match(viewport, /pivotIndicator/);
+  assert.match(css, /\.model-view-context-menu/);
+});
+
+test("NX-style trim supports spline intersections and drag-across gestures", async () => {
+  const sketcher = await readFile("app/components/Sketcher.tsx", "utf8");
+  const geometry = await readFile("app/components/sketchGeometry.ts", "utf8");
+  const css = await readFile("app/modeling.css", "utf8");
+  assert.match(geometry, /function trimSpline/);
+  assert.match(geometry, /sketchStrokeHits/);
+  assert.match(sketcher, /trim-gesture-trail/);
+  assert.match(sketcher, /release to trim/);
+  assert.match(css, /\.trim-gesture-trail/);
 });
 
 test("sketch patterns support shift selection and persistent mirror constraints", async () => {
@@ -347,6 +411,57 @@ test("sketch patterns support shift selection and persistent mirror constraints"
   assert.match(sketcher, /type: "mirror"/);
   assert.match(sketcher, /mirror-constraint-badge/);
   assert.match(sketcher, /synchronizeMirrorLinks/);
+});
+
+test("sketch patterns expose linked linear, rectangular, and circular workflows", async () => {
+  const sketcher = await source("app/components/Sketcher.tsx");
+  const constraints = await source("app/components/sketchConstraints.ts");
+  const geometry = await source("app/components/sketchGeometry.ts");
+  const css = await source("app/modeling.css");
+  assert.match(sketcher, /label="Linear" title="Linear sketch pattern/);
+  assert.match(sketcher, /label="Rect" title="Rectangular sketch pattern/);
+  assert.match(sketcher, /label="Circular" title="Circular sketch pattern/);
+  assert.match(sketcher, /sketch-pattern-manager/);
+  assert.match(sketcher, /Instances to Skip/);
+  assert.match(sketcher, /Equal spacing across angular span/);
+  assert.match(sketcher, />Radius<BufferedNumberInput/);
+  assert.match(sketcher, />Arc angle<BufferedNumberInput/);
+  assert.match(sketcher, /Rotate instances about center/);
+  assert.match(sketcher, /sketch-pattern-preview/);
+  assert.match(sketcher, /pattern-constraint-badge/);
+  assert.match(constraints, /type: "linear-pattern"/);
+  assert.match(constraints, /type: "rectangular-pattern"/);
+  assert.match(constraints, /type: "circular-pattern"/);
+  assert.match(geometry, /synchronizePatternLinks/);
+  assert.match(css, /\.sketch-pattern-manager/);
+});
+
+test("pattern managers open before reference picking and ignore background edges as seeds", async () => {
+  const sketcher = await source("app/components/Sketcher.tsx");
+  assert.match(sketcher, /\{patternDraft && <aside className="sketch-pattern-manager"/);
+  assert.match(sketcher, /tool === "mirror" && <aside className="sketch-pattern-manager sketch-mirror-manager"/);
+  assert.match(sketcher, /selectedSketchEntityIds/);
+  assert.match(sketcher, /patternDraft\?\.stage === "direction-1"[\s\S]*?patternDraft\?\.stage === "center"[\s\S]*?externalReferences\.map/);
+  assert.doesNotMatch(sketcher, /patternDraft\?\.stage !== "parameters"\) && externalReferences\.map/);
+});
+
+test("focused controls cannot trigger sketch or model picking shortcuts", async () => {
+  const [sketcher, page, bufferedInput] = await Promise.all([source("app/components/Sketcher.tsx"), source("app/page.tsx"), source("app/components/BufferedNumberInput.tsx")]);
+  assert.match(sketcher, /keyboardEventOwnedByControl\(event\.target\)/);
+  assert.match(page, /event\.defaultPrevented \|\| keyboardEventOwnedByControl\(event\.target\)/);
+  assert.match(bufferedInput, /input, textarea, select, button/);
+});
+
+test("modeling dialogs buffer incomplete numeric edits without mutating geometry", async () => {
+  const [sketcher, page, bufferedInput] = await Promise.all([source("app/components/Sketcher.tsx"), source("app/page.tsx"), source("app/components/BufferedNumberInput.tsx")]);
+  assert.match(bufferedInput, /if \(!trimmed\)/);
+  assert.match(bufferedInput, /Number\.isFinite\(parsed\)/);
+  assert.match(bufferedInput, /cancelOnBlur/);
+  assert.ok((page.match(/<BufferedNumberInput/g) ?? []).length >= 17);
+  assert.ok((sketcher.match(/<BufferedNumberInput/g) ?? []).length >= 8);
+  assert.doesNotMatch(page, /<input[^>]*type="number"/);
+  assert.match(sketcher, /patternSkippedInput/);
+  assert.match(sketcher, /cancelDimensionEditOnBlur/);
 });
 
 test("selected splines expose weighted tangent handles and relaxation", async () => {
@@ -373,8 +488,8 @@ test("3D viewport rebuilds the document and displays unconsumed sketches", async
   assert.match(viewport, /editingSketchId/);
   assert.match(viewport, /onSketchViewChange/);
   assert.match(viewport, /onSketchRotatedChange/);
-  assert.match(viewport, /mouseButtons\.MIDDLE/);
-  assert.match(viewport, /mouseButtons\.RIGHT/);
+  assert.match(viewport, /middlePressed = \(event\.buttons & 4\)/);
+  assert.match(viewport, /rightPressed = \(event\.buttons & 2\)/);
   assert.match(viewport, /sampleSketchEntity/);
   assert.match(viewport, /ArrowHelper/);
   assert.match(viewport, /previewFaces/);

@@ -406,6 +406,103 @@ def test_document_drafts_cube_side_faces_from_neutral_face():
     assert payload["properties"]["volume"] != 24000
 
 
+def test_document_drafts_closed_spline_hull_without_failing_at_its_joining_point():
+    hull = {
+        "id": "hull-spline",
+        "type": "spline",
+        "points": [
+            {"x": -42, "y": 0}, {"x": -24, "y": -16}, {"x": 20, "y": -19},
+            {"x": 50, "y": 0}, {"x": 20, "y": 19}, {"x": -24, "y": 16}, {"x": -42, "y": 0},
+        ],
+    }
+    base = {
+        "sketches": [{"id": "hull", "plane": "XY", "entities": [hull]}],
+        "features": [{"id": "hull-extrude", "type": "extrude", "sketchId": "hull", "combine": "new", "bodyId": "body-1", "distance": 18}],
+    }
+    rebuilt = client.post("/api/document", json=base)
+    assert rebuilt.status_code == 200, rebuilt.text
+    body_faces = [face for face in rebuilt.json()["faces"] if face["bodyId"] == "body-1"]
+    neutral = next(face for face in body_faces if face["planar"] and face["normal"][2] < -0.99)
+    curved_sides = [face for face in body_faces if face["geometryType"] not in ("PLANE", "CYLINDER", "CONE")]
+    assert curved_sides
+
+    preview = client.post("/api/document", json={
+        **base,
+        "previewFeature": {
+            "type": "draft", "targetBodyId": "body-1", "neutralFaceIndex": neutral["faceIndex"],
+            "faceIndices": [face["faceIndex"] for face in curved_sides], "angle": 3, "reverse": False,
+        },
+    })
+    assert preview.status_code == 200, preview.text
+    payload = preview.json()
+    assert payload["previewTargetBodyId"] == "body-1"
+    assert payload["previewFaces"]
+    assert payload["properties"]["valid"] is True
+
+
+def test_document_shells_a_box_inward_and_removes_the_selected_opening_face():
+    base = {
+        "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],
+        "features": [{"id": "base-feature", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "body-1", "distance": 20}],
+    }
+    rebuilt = client.post("/api/document", json=base)
+    assert rebuilt.status_code == 200, rebuilt.text
+    top = max((face for face in rebuilt.json()["faces"] if face["planar"]), key=lambda face: face["center"][2])
+    shelled = client.post("/api/document", json={
+        **base,
+        "features": [*base["features"], {"id": "shell-1", "type": "shell", "targetBodyId": "body-1", "faceIndices": [top["faceIndex"]], "thickness": 2, "outward": False}],
+    })
+    assert shelled.status_code == 200, shelled.text
+    payload = shelled.json()
+    assert payload["properties"]["valid"] is True
+    assert payload["properties"]["solidCount"] == 1
+    assert math.isclose(payload["properties"]["volume"], 7152, rel_tol=1e-6)
+    outward_preview = client.post("/api/document", json={
+        **base,
+        "previewFeature": {"type": "shell", "targetBodyId": "body-1", "faceIndices": [top["faceIndex"]], "thickness": 2, "outward": True},
+    })
+    assert outward_preview.status_code == 200, outward_preview.text
+    assert outward_preview.json()["previewTargetBodyId"] == "body-1"
+    assert outward_preview.json()["previewFaces"]
+
+
+def test_document_shells_a_ten_degree_drafted_closed_spline_boat_hull():
+    hull = {
+        "id": "hull-spline",
+        "type": "spline",
+        "points": [
+            {"x": -42, "y": 0}, {"x": -24, "y": -16}, {"x": 20, "y": -19},
+            {"x": 50, "y": 0}, {"x": 20, "y": 19}, {"x": -24, "y": 16}, {"x": -42, "y": 0},
+        ],
+    }
+    base = {
+        "sketches": [{"id": "hull", "plane": "XY", "entities": [hull]}],
+        "features": [{"id": "hull-extrude", "type": "extrude", "sketchId": "hull", "combine": "new", "bodyId": "body-1", "distance": 18}],
+    }
+    extruded = client.post("/api/document", json=base)
+    assert extruded.status_code == 200, extruded.text
+    base_faces = extruded.json()["faces"]
+    neutral = next(face for face in base_faces if face["planar"] and face["normal"][2] < -0.99)
+    curved_sides = [face for face in base_faces if face["geometryType"] not in ("PLANE", "CYLINDER", "CONE")]
+    drafted = {
+        **base,
+        "features": [*base["features"], {"id": "hull-draft", "type": "draft", "targetBodyId": "body-1", "neutralFaceIndex": neutral["faceIndex"], "faceIndices": [face["faceIndex"] for face in curved_sides], "angle": 10, "reverse": False}],
+    }
+    drafted_result = client.post("/api/document", json=drafted)
+    assert drafted_result.status_code == 200, drafted_result.text
+    top = max((face for face in drafted_result.json()["faces"] if face["planar"]), key=lambda face: face["center"][2])
+    shelled = client.post("/api/document", json={
+        **drafted,
+        "features": [*drafted["features"], {"id": "hull-shell", "type": "shell", "targetBodyId": "body-1", "faceIndices": [top["faceIndex"]], "thickness": 1.5, "outward": False}],
+    })
+    assert shelled.status_code == 200, shelled.text
+    payload = shelled.json()
+    assert payload["properties"]["valid"] is True
+    assert payload["properties"]["solidCount"] == 1
+    assert 0 < payload["properties"]["volume"] < drafted_result.json()["properties"]["volume"]
+    assert payload["properties"]["faceCount"] > drafted_result.json()["properties"]["faceCount"]
+
+
 def test_body_feature_preview_replaces_target_with_phantom_result():
     document = {
         "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],

@@ -167,6 +167,11 @@
 .model-grid-toggle { position:absolute; z-index:6; right:14px; bottom:14px; display:grid; place-items:center; width:30px; height:30px; padding:0; border:1px solid #344654; border-radius:5px; background:#101820dc; color:#758898; box-shadow:0 5px 16px #0007; cursor:pointer; }
 .model-grid-toggle:hover { border-color:#5d91a8; background:#172631; }
 .model-grid-toggle.active { border-color:#3b9abf; color:#78d9f7; background:#123040e8; }
+.model-view-context-menu { position:absolute; z-index:30; display:grid; min-width:190px; padding:4px; border:1px solid #405767; border-radius:6px; background:#101922f2; box-shadow:0 9px 26px #000b; }
+.model-view-context-menu[hidden] { display:none; }
+.model-view-context-menu button { padding:7px 9px; border:0; border-radius:4px; background:transparent; color:#d2dee7; font:500 11px "Segoe UI Variable Text","Segoe UI",sans-serif; text-align:left; cursor:pointer; }
+.model-view-context-menu button:hover,
+.model-view-context-menu button:focus-visible { outline:none; background:#223747; color:#fff; }
 .model-grid-icon { width:16px; height:16px; border:1px solid currentColor; transform:perspective(20px) rotateX(55deg); background:repeating-linear-gradient(90deg,transparent 0 4px,currentColor 4px 5px),repeating-linear-gradient(0deg,transparent 0 4px,currentColor 4px 5px); opacity:.9; }
 
 .support-pick-callout {
@@ -349,6 +354,16 @@
   color: #79e6ae;
 }
 
+.sketch-commandbar .sketch-check-tool .sketch-tool-icon { color:#ffbf69; }
+.sketch-check-icon { display:grid; place-items:center; width:18px; height:18px; border:1px dashed currentColor; border-radius:50%; font-size:15px; line-height:1; }
+.sketch-commandbar .sketch-check-tool.active { border-color:#d7864d; background:#3a2319; }
+.sketch-entity.sketch-check-open > *:not(.sketch-point):not(.sketch-line-hit):not(.trim-hit):not(.spline-hit) { stroke:#ff685f !important; filter:drop-shadow(0 0 3px #ff443f); }
+.sketch-check-endpoint { pointer-events:none; }
+.sketch-check-endpoint circle { fill:#351719; stroke:#ff685f; stroke-width:1.4px; vector-effect:non-scaling-stroke; }
+.sketch-check-endpoint path { fill:none; stroke:#ffd0cb; stroke-width:1.4px; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+.sketch-status.check-failed { box-shadow:inset 3px 0 #ff685f; }
+.sketch-status.check-failed span:first-child { color:#ffb3ad; }
+
 .sketch-ribbon-divider {
   align-self: stretch;
   width: 1px;
@@ -413,6 +428,9 @@
 .mirror-pattern-icon i { position:absolute; top:4px; width:0; height:0; border-top:4px solid transparent; border-bottom:4px solid transparent; }
 .mirror-pattern-icon i:first-child { left:1px; border-right:6px solid #71d6f7; }
 .mirror-pattern-icon i:last-child { right:1px; border-left:6px solid #d69cff; }
+.linear-pattern-icon { color:#7dd3fc; font:700 17px/1 "Segoe UI",sans-serif; letter-spacing:1px; }
+.rectangular-pattern-icon { color:#83e3bd; font:700 18px/1 "Segoe UI Symbol",sans-serif; }
+.circular-pattern-icon { color:#d6a9ff; font:700 23px/1 "Segoe UI Symbol",sans-serif; }
 .locked-axis-constraint { cursor:pointer; outline:none; }
 .locked-axis-constraint rect { fill:#241634; stroke:#b467ee; stroke-width:1px; vector-effect:non-scaling-stroke; }
 .locked-axis-constraint text { fill:#d69cff; font:bold 7px Segoe UI,Arial,sans-serif; pointer-events:none; }
@@ -427,10 +445,58 @@
 .mirror-constraint-badge.selected rect { fill:#49321b; stroke:#ffd56f; stroke-width:1.3px; }
 .mirror-constraint-badge:hover text,
 .mirror-constraint-badge.selected text { fill:#ffd56f; }
+.pattern-constraint-badge { cursor:pointer; outline:none; }
+.pattern-constraint-badge circle { fill:#12242c; stroke:#61c9e8; stroke-width:.8px; vector-effect:non-scaling-stroke; }
+.pattern-constraint-badge text { fill:#b9efff; font:800 4px "Segoe UI Variable Text","Segoe UI",sans-serif; pointer-events:none; }
+.pattern-constraint-badge:hover circle,
+.pattern-constraint-badge.selected circle { fill:#49321b; stroke:#ffd56f; stroke-width:1.1px; }
+.pattern-constraint-badge:hover text,
+.pattern-constraint-badge.selected text { fill:#ffd56f; }
+.sketch-pattern-preview { pointer-events:none; opacity:.54; }
+.sketch-pattern-preview line,
+.sketch-pattern-preview circle,
+.sketch-pattern-preview ellipse,
+.sketch-pattern-preview path { fill:none; stroke:#7de3c4; stroke-width:1.1px; stroke-dasharray:4 2; vector-effect:non-scaling-stroke; filter:drop-shadow(0 0 2px #37b995); }
+.sketch-canvas.tool-linear-pattern,
+.sketch-canvas.tool-rectangular-pattern,
+.sketch-canvas.tool-circular-pattern { cursor:crosshair; }
+.sketch-pattern-manager { position:absolute; z-index:35; top:76px; left:14px; width:244px; max-height:calc(100% - 112px); overflow:auto; padding:0; border:1px solid #365064; border-radius:7px; background:#111b24f5; color:#c8d8e3; box-shadow:0 14px 34px #000b; font:10px/1.25 "Segoe UI Variable Text","Segoe UI",sans-serif; }
+.sketch-pattern-manager header { position:sticky; z-index:1; top:0; display:flex; align-items:center; justify-content:space-between; padding:8px 9px; border-bottom:1px solid #2d4352; background:#172632; }
+.sketch-pattern-manager header div { display:flex; flex-direction:column; gap:1px; }
+.sketch-pattern-manager header small { color:#6f91a6; font-size:7px; font-weight:800; letter-spacing:.13em; }
+.sketch-pattern-manager header strong { color:#e0f5ff; font-size:12px; }
+.sketch-pattern-manager button { border:1px solid #385467; border-radius:4px; background:#172734; color:#bcd6e5; font:inherit; cursor:pointer; }
+.sketch-pattern-manager button:hover { border-color:#58b9e4; color:#fff; }
+.sketch-pattern-manager button:disabled { cursor:not-allowed; opacity:.38; border-color:#304653; color:#7890a0; }
+.sketch-pattern-manager header>button { width:23px; height:23px; padding:0; border-color:transparent; background:transparent; font-size:17px; }
+.pattern-manager-section { display:grid; gap:6px; padding:8px 9px; border-bottom:1px solid #243744; }
+.pattern-manager-section.active-step { background:#123047; box-shadow:inset 3px 0 #59c8f2; }
+.pattern-manager-section.active-step>b { color:#72d8ff; }
+.pattern-manager-section>b { color:#8fb0c3; font-size:8px; letter-spacing:.08em; text-transform:uppercase; }
+.pattern-reference-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.pattern-reference-row span { overflow:hidden; color:#d6e8f2; text-overflow:ellipsis; white-space:nowrap; }
+.pattern-reference-row button { padding:3px 6px; }
+.pattern-field-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.pattern-field-grid label,
+.pattern-skip-field { position:relative; display:grid; gap:3px; color:#839cac; font-size:8px; }
+.pattern-field-grid input,
+.pattern-skip-field input { width:100%; min-width:0; height:24px; padding:3px 23px 3px 6px; border:1px solid #314a5a; border-radius:4px; outline:0; background:#0b141b; color:#e6f6ff; font:10px "Segoe UI",sans-serif; }
+.pattern-field-grid input:focus,
+.pattern-skip-field input:focus { border-color:#55c7f3; box-shadow:0 0 0 1px #55c7f355; }
+.pattern-field-grid label em { position:absolute; right:5px; bottom:6px; color:#668396; font-size:7px; font-style:normal; pointer-events:none; }
+.pattern-check { display:flex; align-items:center; gap:6px; color:#adc3d0; cursor:pointer; }
+.pattern-check input { accent-color:#46bfe8; }
+.pattern-manager-section>small { color:#627d8e; font-size:8px; }
+.sketch-pattern-manager footer { position:sticky; bottom:0; display:flex; justify-content:flex-end; gap:6px; padding:8px 9px; background:#172632; }
+.sketch-pattern-manager footer button { padding:5px 8px; }
+.sketch-pattern-manager footer .apply { border-color:#2e8e68; background:#176342; color:#e3fff2; font-weight:700; }
 .sketch-constraint-shortcut { position:fixed; z-index:80; transform:translate(6px,6px); padding:3px; border:1px solid #3b5263; border-radius:5px; background:#111a22; box-shadow:0 6px 18px #0009; }
 .sketch-constraint-shortcut button { display:flex; align-items:center; gap:5px; padding:4px 7px; border:0; border-radius:3px; background:transparent; color:#c9d7e2; font-size:10px; cursor:pointer; }
 .sketch-constraint-shortcut button:hover { background:#243746; color:#fff; }
 .sketch-canvas.tool-extend { cursor: crosshair; }
+.sketch-canvas.tool-trim { cursor:crosshair; }
+.trim-gesture-trail { fill:none; stroke:#ffe08b; stroke-width:1.25px; stroke-dasharray:2.5 3.5; stroke-linecap:round; vector-effect:non-scaling-stroke; pointer-events:none; filter:drop-shadow(0 0 2px #d79a35); }
+.sketch-canvas.trimming-gesture .trim-hit { stroke:#ffd36a !important; }
 .sketch-canvas.tool-mirror { cursor:crosshair; }
 .sketch-entity.extend-source > *:not(.sketch-point):not(.sketch-line-hit) { stroke:#8ee89e !important; stroke-width:var(--sketch-highlight-width,1.2px) !important; }
 .spline-handle-layer line { stroke:#55d69a; stroke-width:.7px; vector-effect:non-scaling-stroke; pointer-events:none; }
@@ -684,4 +750,30 @@
 .dimension-annotation.selected .sketch-dimension text {
   fill: #f6bd4a;
   stroke: #f6bd4a;
+}
+
+.shell-icon {
+  width: 24px;
+  height: 22px;
+  border: 2px solid #7dd3fc;
+  border-top-color: transparent;
+  border-radius: 2px 2px 7px 7px;
+}
+
+.shell-icon::before {
+  content: "";
+  position: absolute;
+  inset: 3px 4px 4px;
+  border: 2px solid #58d6c1;
+  border-top-color: transparent;
+  border-radius: 1px 1px 5px 5px;
+}
+
+.shell-icon::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: -2px;
+  border-top: 2px dashed #f6b94d;
 }

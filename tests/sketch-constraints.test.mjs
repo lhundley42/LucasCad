@@ -169,6 +169,7 @@ test("dimension placement follows the selected grid axis", () => {
 
 test("editing a vertical dimension produces the correct target node", () => {
   assert.deepEqual(targetPointForLinearValue({ x: 0, y: 0 }, { x: 20, y: -50 }, "vertical", 35), { x: 20, y: -35 });
+  assert.deepEqual(targetPointForLinearValue({ x: 0, y: 0 }, { x: 20, y: -50 }, "vertical", 0), { x: 20, y: 0 });
 });
 
 test("a projected plane intersection behaves as a fixed dimension line", () => {

@@ -51,7 +51,53 @@ export type MirrorConstraint = {
   pairs: { sourceId: string; mirroredId: string }[];
 };
 
-export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | DiameterDimensionConstraint | MirrorConstraint;
+export type PatternDirectionReference =
+  | { kind: "entity"; entityId: string; fallback: Point }
+  | { kind: "external"; referenceId: string; fallback: Point };
+
+export type PatternCenterReference =
+  | { kind: "origin" }
+  | { kind: "fixed"; point: Point }
+  | { kind: "entity-node"; entityId: string; handle: string; fallback: Point }
+  | { kind: "external-point"; referenceId: string; fallback: Point };
+
+type LinearPatternConstraintBase = {
+  id: string;
+  direction1: PatternDirectionReference;
+  spacing1: number;
+  count1: number;
+  flip1: boolean;
+  direction2?: PatternDirectionReference;
+  spacing2?: number;
+  count2?: number;
+  flip2?: boolean;
+  skipped: { column: number; row: number }[];
+  pairs: { sourceId: string; instances: { entityId: string; column: number; row: number }[] }[];
+  conflicted?: boolean;
+};
+
+export type LinearPatternConstraint = LinearPatternConstraintBase & (
+  | { type: "linear-pattern" }
+  | { type: "rectangular-pattern"; direction2: PatternDirectionReference }
+);
+
+export type CircularPatternConstraint = {
+  id: string;
+  type: "circular-pattern";
+  center: PatternCenterReference;
+  count: number;
+  span: number;
+  equalSpacing: boolean;
+  reverse: boolean;
+  rotateInstances: boolean;
+  skipped: number[];
+  pairs: { sourceId: string; instances: { entityId: string; index: number }[] }[];
+  conflicted?: boolean;
+};
+
+export type PatternConstraint = LinearPatternConstraint | CircularPatternConstraint;
+
+export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | DiameterDimensionConstraint | MirrorConstraint | PatternConstraint;
 
 export type DimensionLayout = {
   first: Point;

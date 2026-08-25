@@ -1,3 +1,5 @@
+import type { CircularPatternConstraint, LinearPatternConstraint, PatternCenterReference, PatternDirectionReference } from "./sketchConstraints.ts";
+
 export type Point = { x: number; y: number };
 export type SplineHandlePair = { in: Point; out: Point };
 export type SelectionBox = { left: number; right: number; top: number; bottom: number };
@@ -8,6 +10,14 @@ export type SketchEntity =
   | (BaseEntity & { type: "ellipse"; c: Point; rx: number; ry: number; rotation?: number })
   | (BaseEntity & { type: "arc"; a: Point; b: Point; through: Point })
   | (BaseEntity & { type: "spline"; points: Point[]; handles?: SplineHandlePair[] });
+export type SketchCheckEndpoint = { point: Point; entityIds: string[] };
+export type SketchCheckResult = {
+  viable: boolean;
+  openEndpoints: SketchCheckEndpoint[];
+  affectedEntityIds: string[];
+  removalEntityIds: string[];
+  isolatedEntityIds: string[];
+};
 
 const TAU = Math.PI * 2;
 const EPSILON = 1e-6;
@@ -39,6 +49,97 @@ export const nearestGridVertex = (point: Point, spacing: number): Point => {
   };
   return { x: snapAxis(point.x), y: snapAxis(point.y) };
 };
+
+/**
+ * Finds the same unpaired sketch endpoints that prevent the modeling kernel
+ * from creating a wire. The repair set is the graph's non-cyclic fringe: it
+ * trims dangling branches but preserves every closed contour core.
+ */
+export function analyzeSketchContours(entities: SketchEntity[], tolerance = 0.05): SketchCheckResult {
+  type OpenEntity = { entity: SketchEntity; points: [Point, Point]; nodes: [number, number] };
+  type EndpointGroup = { point: Point; samples: Point[]; entityIds: string[] };
+
+  const drawable = entities.filter((entity) => !entity.construction);
+  const candidates = drawable.flatMap((entity): { entity: SketchEntity; points: [Point, Point] }[] => {
+    if (entity.type === "line" || entity.type === "arc") return [{ entity, points: [entity.a, entity.b] }];
+    if (entity.type === "spline" && entity.points.length > 1 && distance(entity.points[0], entity.points.at(-1)!) >= tolerance) {
+      return [{ entity, points: [entity.points[0], entity.points.at(-1)!] }];
+    }
+    return [];
+  });
+  const groups: EndpointGroup[] = [];
+  const groupFor = (point: Point, entityId: string) => {
+    const index = groups.findIndex((group) => Math.abs(group.point.x - point.x) < tolerance && Math.abs(group.point.y - point.y) < tolerance);
+    if (index < 0) {
+      groups.push({ point: { ...point }, samples: [{ ...point }], entityIds: [entityId] });
+      return groups.length - 1;
+    }
+    const group = groups[index];
+    group.samples.push({ ...point });
+    if (!group.entityIds.includes(entityId)) group.entityIds.push(entityId);
+    group.point = {
+      x: group.samples.reduce((sum, sample) => sum + sample.x, 0) / group.samples.length,
+      y: group.samples.reduce((sum, sample) => sum + sample.y, 0) / group.samples.length,
+    };
+    return index;
+  };
+  const openEntities: OpenEntity[] = candidates.map(({ entity, points }) => ({
+    entity,
+    points,
+    nodes: [groupFor(points[0], entity.id), groupFor(points[1], entity.id)],
+  }));
+  const active = new Set(openEntities.map((_, index) => index));
+  const removalEntityIds = new Set<string>();
+
+  // Repeated leaf removal isolates the dangling fringe (the graph outside its
+  // 2-core). A fully open component naturally disappears in this pass.
+  while (active.size) {
+    const degrees = Array(groups.length).fill(0) as number[];
+    active.forEach((edgeIndex) => {
+      const [first, second] = openEntities[edgeIndex].nodes;
+      degrees[first] += 1; degrees[second] += 1;
+    });
+    const leaves = [...active].filter((edgeIndex) => {
+      const [first, second] = openEntities[edgeIndex].nodes;
+      return degrees[first] <= 1 || degrees[second] <= 1;
+    });
+    if (!leaves.length) break;
+    leaves.forEach((edgeIndex) => { active.delete(edgeIndex); removalEntityIds.add(openEntities[edgeIndex].entity.id); });
+  }
+
+  const degree = Array(groups.length).fill(0) as number[];
+  openEntities.forEach(({ nodes }) => { degree[nodes[0]] += 1; degree[nodes[1]] += 1; });
+  const openEndpoints = groups
+    .map((group, index) => ({ group, degree: degree[index] }))
+    .filter(({ degree: endpointDegree }) => endpointDegree % 2 === 1)
+    .map(({ group }) => ({ point: group.point, entityIds: group.entityIds }));
+  const affectedEntityIds = new Set(openEndpoints.flatMap((endpoint) => endpoint.entityIds));
+  removalEntityIds.forEach((entityId) => affectedEntityIds.add(entityId));
+  const edgesAtNode = groups.map(() => [] as number[]);
+  openEntities.forEach(({ nodes }, edgeIndex) => nodes.forEach((node) => edgesAtNode[node].push(edgeIndex)));
+  const isolatedEntityIds = new Set<string>(); const visited = new Set<number>();
+  openEntities.forEach((_, startIndex) => {
+    if (visited.has(startIndex)) return;
+    const component: number[] = []; const queue = [startIndex]; visited.add(startIndex);
+    while (queue.length) {
+      const edgeIndex = queue.shift()!; component.push(edgeIndex);
+      openEntities[edgeIndex].nodes.flatMap((node) => edgesAtNode[node]).forEach((neighbor) => {
+        if (!visited.has(neighbor)) { visited.add(neighbor); queue.push(neighbor); }
+      });
+    }
+    if (!component.some((edgeIndex) => active.has(edgeIndex))) component.forEach((edgeIndex) => isolatedEntityIds.add(openEntities[edgeIndex].entity.id));
+  });
+  const hasClosedPrimitive = drawable.some((entity) => entity.type === "circle" || entity.type === "ellipse" || entity.type === "spline" && entity.points.length > 2 && distance(entity.points[0], entity.points.at(-1)!) < tolerance);
+  const hasClosedWire = active.size > 0;
+
+  return {
+    viable: drawable.length > 0 && openEndpoints.length === 0 && (hasClosedPrimitive || hasClosedWire),
+    openEndpoints,
+    affectedEntityIds: [...affectedEntityIds],
+    removalEntityIds: [...removalEntityIds],
+    isolatedEntityIds: [...isolatedEntityIds],
+  };
+}
 export function translateSketchEntity(entity: SketchEntity, delta: Point): SketchEntity {
   const move = (point: Point): Point => ({ x: point.x + delta.x, y: point.y + delta.y });
   if (entity.type === "line") return { ...entity, a: move(entity.a), b: move(entity.b) };
@@ -160,14 +261,16 @@ export function sampleSplineEntity(entity: Extract<SketchEntity, { type: "spline
   return entity.points.slice(0, -1).flatMap((point, index) => Array.from({ length: samplesPerSpan }, (_, sample) => cubicPoint(point, handles[index].out, handles[index + 1].in, entity.points[index + 1], sample / samplesPerSpan))).concat(entity.points.at(-1)!);
 }
 
-function lineIntersection(a: Point, b: Point, c: Point, d: Point): Point | null {
+function segmentIntersection(a: Point, b: Point, c: Point, d: Point): { point: Point; firstAmount: number; secondAmount: number } | null {
   const denominator = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x);
   if (Math.abs(denominator) < EPSILON) return null;
   const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / denominator;
   const u = ((c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)) / denominator;
   if (t < -EPSILON || t > 1 + EPSILON || u < -EPSILON || u > 1 + EPSILON) return null;
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  return { point: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, firstAmount: t, secondAmount: u };
 }
+
+function lineIntersection(a: Point, b: Point, c: Point, d: Point): Point | null { return segmentIntersection(a, b, c, d)?.point ?? null; }
 
 export function entityInSelectionBox(entity: SketchEntity, start: Point, end: Point): boolean {
   const box = normalizedSelectionBox(start, end);
@@ -324,6 +427,98 @@ export function cornerLines(
   return [nextFirst, nextSecond];
 }
 
+function signedDistanceToInfiniteLine(point: Point, line: Extract<SketchEntity, { type: "line" }>) {
+  const dx = line.b.x - line.a.x; const dy = line.b.y - line.a.y; const length = Math.hypot(dx, dy);
+  return length < EPSILON ? Number.POSITIVE_INFINITY : (dx * (point.y - line.a.y) - dy * (point.x - line.a.x)) / length;
+}
+
+function splineLineIntersections(spline: Extract<SketchEntity, { type: "spline" }>, line: Extract<SketchEntity, { type: "line" }>) {
+  const handles = spline.handles?.length === spline.points.length ? spline.handles : automaticSplineHandles(spline.points);
+  const results: { point: Point; parameter: number }[] = []; const samples = 64;
+  for (let span = 0; span < spline.points.length - 1; span++) {
+    const pointAtAmount = (amount: number) => cubicPoint(spline.points[span], handles[span].out, handles[span + 1].in, spline.points[span + 1], amount);
+    let previousAmount = 0; let previousPoint = pointAtAmount(0); let previousDistance = signedDistanceToInfiniteLine(previousPoint, line);
+    if (Math.abs(previousDistance) < 1e-5) results.push({ point: previousPoint, parameter: span });
+    for (let sample = 1; sample <= samples; sample++) {
+      const amount = sample / samples; const point = pointAtAmount(amount); const lineDistance = signedDistanceToInfiniteLine(point, line);
+      if (Math.abs(lineDistance) < 1e-5) results.push({ point, parameter: span + amount });
+      else if (previousDistance * lineDistance < 0) {
+        let low = previousAmount; let high = amount; let lowDistance = previousDistance;
+        for (let iteration = 0; iteration < 22; iteration++) {
+          const middle = (low + high) / 2; const middleDistance = signedDistanceToInfiniteLine(pointAtAmount(middle), line);
+          if (lowDistance * middleDistance <= 0) high = middle; else { low = middle; lowDistance = middleDistance; }
+        }
+        const root = (low + high) / 2; results.push({ point: pointAtAmount(root), parameter: span + root });
+      }
+      previousAmount = amount; previousPoint = point; previousDistance = lineDistance;
+    }
+  }
+  return results.filter((result, index) => results.findIndex((candidate) => Math.abs(candidate.parameter - result.parameter) < 1e-4) === index);
+}
+
+function rayInfiniteLineIntersection(origin: Point, direction: Point, line: Extract<SketchEntity, { type: "line" }>) {
+  const lx = line.b.x - line.a.x; const ly = line.b.y - line.a.y; const denominator = direction.x * ly - direction.y * lx;
+  if (Math.abs(denominator) < EPSILON) return null;
+  const ox = line.a.x - origin.x; const oy = line.a.y - origin.y; const amount = (ox * ly - oy * lx) / denominator;
+  if (amount <= 1e-5) return null;
+  return { point: { x: origin.x + direction.x * amount, y: origin.y + direction.y * amount }, distance: amount * Math.hypot(direction.x, direction.y) };
+}
+
+function extendSplineEndToCorner(spline: Extract<SketchEntity, { type: "spline" }>, end: "start" | "end", corner: Point): Extract<SketchEntity, { type: "spline" }> {
+  const points = spline.points.map((point) => ({ ...point }));
+  const handles = (spline.handles?.length === spline.points.length ? spline.handles : automaticSplineHandles(spline.points)).map((pair) => ({ in: { ...pair.in }, out: { ...pair.out } }));
+  if (end === "start") {
+    const former = points[0]; const cornerHandle = lerpPoint(corner, former, 1 / 3); handles[0].in = lerpPoint(corner, former, 2 / 3);
+    points.unshift({ ...corner }); handles.unshift({ in: { ...corner }, out: cornerHandle });
+  } else {
+    const former = points.at(-1)!; handles[handles.length - 1].out = lerpPoint(former, corner, 1 / 3);
+    points.push({ ...corner }); handles.push({ in: lerpPoint(former, corner, 2 / 3), out: { ...corner } });
+  }
+  return { ...spline, points, handles, relations: [...new Set([...(spline.relations ?? []), "Corner"])] };
+}
+
+function cornerSplineAndLine(
+  spline: Extract<SketchEntity, { type: "spline" }>, splineClick: Point,
+  line: Extract<SketchEntity, { type: "line" }>, lineClick: Point,
+): [Extract<SketchEntity, { type: "spline" }>, Extract<SketchEntity, { type: "line" }>] | null {
+  if (spline.points.length < 2 || distance(line.a, line.b) < EPSILON) return null;
+  const spanCount = spline.points.length - 1; const clicked = nearestSplineSpan(spline, splineClick); const clickParameter = clicked.span + clicked.amount;
+  const intersections = splineLineIntersections(spline, line).sort((first, second) => Math.abs(first.parameter - clickParameter) - Math.abs(second.parameter - clickParameter));
+  if (intersections.length) {
+    const chosen = intersections[0]; const section = clickParameter <= chosen.parameter ? splineSection(spline, 0, chosen.parameter) : splineSection(spline, chosen.parameter, spanCount);
+    if (!section) return null;
+    const nextSpline = { ...section, id: spline.id, relations: [...new Set([...(spline.relations ?? []), "Corner"])] };
+    const nextLine = lineToCorner(line, lineClick, chosen.point);
+    if (distance(nextLine.a, nextLine.b) < EPSILON) return null;
+    return [nextSpline, nextLine];
+  }
+  if (distance(spline.points[0], spline.points.at(-1)!) < 0.001) return null;
+  const handles = spline.handles?.length === spline.points.length ? spline.handles : automaticSplineHandles(spline.points);
+  const start = spline.points[0]; const end = spline.points.at(-1)!;
+  const startDirection = { x: start.x - handles[0].out.x, y: start.y - handles[0].out.y };
+  if (Math.hypot(startDirection.x, startDirection.y) < EPSILON) { startDirection.x = start.x - spline.points[1].x; startDirection.y = start.y - spline.points[1].y; }
+  const endDirection = { x: end.x - handles.at(-1)!.in.x, y: end.y - handles.at(-1)!.in.y };
+  if (Math.hypot(endDirection.x, endDirection.y) < EPSILON) { endDirection.x = end.x - spline.points.at(-2)!.x; endDirection.y = end.y - spline.points.at(-2)!.y; }
+  const candidates = [
+    { end: "start" as const, hit: rayInfiniteLineIntersection(start, startDirection, line) },
+    { end: "end" as const, hit: rayInfiniteLineIntersection(end, endDirection, line) },
+  ].filter((candidate): candidate is { end: "start" | "end"; hit: { point: Point; distance: number } } => candidate.hit !== null).sort((first, second) => first.hit.distance - second.hit.distance);
+  if (!candidates.length) return null;
+  const chosen = candidates[0]; const nextSpline = extendSplineEndToCorner(spline, chosen.end, chosen.hit.point); const nextLine = lineToCorner(line, lineClick, chosen.hit.point);
+  if (distance(nextLine.a, nextLine.b) < EPSILON) return null;
+  return [nextSpline, nextLine];
+}
+
+export function cornerEntities(first: SketchEntity, firstClick: Point, second: SketchEntity, secondClick: Point): [SketchEntity, SketchEntity] | null {
+  if (first.id === second.id) return null;
+  if (first.type === "line" && second.type === "line") return cornerLines(first, firstClick, second, secondClick);
+  if (first.type === "spline" && second.type === "line") return cornerSplineAndLine(first, firstClick, second, secondClick);
+  if (first.type === "line" && second.type === "spline") {
+    const result = cornerSplineAndLine(second, secondClick, first, firstClick); return result ? [result[1], result[0]] : null;
+  }
+  return null;
+}
+
 export function perpendicularLineToReference(
   reference: Extract<SketchEntity, { type: "line" }>,
   target: Extract<SketchEntity, { type: "line" }>,
@@ -448,6 +643,122 @@ export function synchronizeMirrorLinks(entities: SketchEntity[], links: MirrorLi
   return next;
 }
 
+export type PatternExternalReference = { id: string; points: Point[] };
+
+function mapSketchEntity(entity: SketchEntity, id: string, mapPoint: (point: Point) => Point, rotation = 0): SketchEntity {
+  const relations = entity.relations?.filter((relation) => relation !== "Horizontal" && relation !== "Vertical");
+  const axisConstraint = Math.abs(Math.sin(rotation)) < 1e-8 ? entity.axisConstraint : undefined;
+  const base = { id, construction: entity.construction, relations, axisConstraint };
+  if (entity.type === "line") return { ...base, type: "line", a: mapPoint(entity.a), b: mapPoint(entity.b) };
+  if (entity.type === "circle") return { ...base, type: "circle", c: mapPoint(entity.c), r: entity.r };
+  if (entity.type === "ellipse") return { ...base, type: "ellipse", c: mapPoint(entity.c), rx: entity.rx, ry: entity.ry, rotation: (entity.rotation ?? 0) + rotation };
+  if (entity.type === "arc") return { ...base, type: "arc", a: mapPoint(entity.a), b: mapPoint(entity.b), through: mapPoint(entity.through) };
+  return { ...base, type: "spline", points: entity.points.map(mapPoint), handles: entity.handles?.map((handle) => ({ in: mapPoint(handle.in), out: mapPoint(handle.out) })) };
+}
+
+function normalizedVector(vector: Point): Point {
+  const length = Math.hypot(vector.x, vector.y);
+  return length > EPSILON ? { x: vector.x / length, y: vector.y / length } : { x: 1, y: 0 };
+}
+
+export function resolvePatternDirection(reference: PatternDirectionReference, entities: SketchEntity[], externalReferences: PatternExternalReference[] = []): Point {
+  if (reference.kind === "entity") {
+    const line = entities.find((entity): entity is Extract<SketchEntity, { type: "line" }> => entity.id === reference.entityId && entity.type === "line");
+    if (line) return normalizedVector({ x: line.b.x - line.a.x, y: line.b.y - line.a.y });
+  } else {
+    const external = externalReferences.find((candidate) => candidate.id === reference.referenceId);
+    if (external && external.points.length > 1) return normalizedVector({ x: external.points.at(-1)!.x - external.points[0].x, y: external.points.at(-1)!.y - external.points[0].y });
+  }
+  return normalizedVector(reference.fallback);
+}
+
+function entityNodePoint(entity: SketchEntity, handle: string): Point | null {
+  if (entity.type === "line") return handle === "a" ? entity.a : handle === "b" ? entity.b : handle === "midpoint" ? midpoint(entity.a, entity.b) : null;
+  if (entity.type === "circle" || entity.type === "ellipse") return handle === "center" ? entity.c : null;
+  if (entity.type === "arc") return handle === "a" ? entity.a : handle === "b" ? entity.b : handle === "through" ? entity.through : null;
+  if (entity.type === "spline" && handle.startsWith("point-")) return entity.points[Number(handle.slice(6))] ?? null;
+  return null;
+}
+
+export function resolvePatternCenter(reference: PatternCenterReference, entities: SketchEntity[], externalReferences: PatternExternalReference[] = []): Point {
+  if (reference.kind === "origin") return { x: 0, y: 0 };
+  if (reference.kind === "fixed") return reference.point;
+  if (reference.kind === "entity-node") {
+    const entity = entities.find((candidate) => candidate.id === reference.entityId);
+    return entity ? entityNodePoint(entity, reference.handle) ?? reference.fallback : reference.fallback;
+  }
+  const external = externalReferences.find((candidate) => candidate.id === reference.referenceId);
+  if (!external?.points.length) return reference.fallback;
+  return external.points.reduce((nearest, point) => distance(point, reference.fallback) < distance(nearest, reference.fallback) ? point : nearest, external.points[0]);
+}
+
+export function linearPatternSketchEntity(entity: SketchEntity, direction1: Point, spacing1: number, column: number, direction2: Point, spacing2: number, row: number, id: string): SketchEntity {
+  const delta = { x: direction1.x * spacing1 * column + direction2.x * spacing2 * row, y: direction1.y * spacing1 * column + direction2.y * spacing2 * row };
+  return mapSketchEntity(entity, id, (point) => ({ x: point.x + delta.x, y: point.y + delta.y }));
+}
+
+export function circularPatternStep(count: number, span: number): number {
+  const safeCount = Math.max(1, Math.round(count));
+  if (safeCount <= 1) return 0;
+  return span / (Math.abs(span) >= 359.999 ? safeCount : safeCount - 1);
+}
+
+export function circularPatternSketchEntity(entity: SketchEntity, center: Point, angleDegrees: number, rotateInstances: boolean, id: string): SketchEntity {
+  const radians = angleDegrees * Math.PI / 180; const cosine = Math.cos(radians); const sine = Math.sin(radians);
+  const rotatePoint = (point: Point) => ({ x: center.x + (point.x - center.x) * cosine - (point.y - center.y) * sine, y: center.y + (point.x - center.x) * sine + (point.y - center.y) * cosine });
+  if (rotateInstances) return mapSketchEntity(entity, id, rotatePoint, radians);
+  const anchor = entityBadgePoint(entity); const rotatedAnchor = rotatePoint(anchor); const delta = { x: rotatedAnchor.x - anchor.x, y: rotatedAnchor.y - anchor.y };
+  return mapSketchEntity(entity, id, (point) => ({ x: point.x + delta.x, y: point.y + delta.y }));
+}
+
+function inverseLinearPatternEntity(entity: SketchEntity, direction1: Point, spacing1: number, column: number, direction2: Point, spacing2: number, row: number, id: string) {
+  return linearPatternSketchEntity(entity, direction1, spacing1, -column, direction2, spacing2, -row, id);
+}
+
+function inverseCircularPatternEntity(entity: SketchEntity, center: Point, angleDegrees: number, rotateInstances: boolean, id: string) {
+  return circularPatternSketchEntity(entity, center, -angleDegrees, rotateInstances, id);
+}
+
+export function synchronizePatternLinks(entities: SketchEntity[], links: (LinearPatternConstraint | CircularPatternConstraint)[], changedEntityIds: Set<string>, externalReferences: PatternExternalReference[] = []): SketchEntity[] {
+  let next = entities;
+  for (const link of links) {
+    if (link.type === "circular-pattern") {
+      const center = resolvePatternCenter(link.center, next, externalReferences); const step = (link.equalSpacing ? circularPatternStep(link.count, link.span) : link.span) * (link.reverse ? -1 : 1);
+      for (const pair of link.pairs) {
+        let source = next.find((entity) => entity.id === pair.sourceId); if (!source) continue;
+        const changedInstance = pair.instances.find((instance) => changedEntityIds.has(instance.entityId));
+        if (changedInstance && !changedEntityIds.has(source.id)) {
+          const driver = next.find((entity) => entity.id === changedInstance.entityId);
+          if (driver) { source = geometryOnto(source, inverseCircularPatternEntity(driver, center, step * changedInstance.index, link.rotateInstances, source.id)); next = next.map((entity) => entity.id === source!.id ? source! : entity); }
+        }
+        for (const instance of pair.instances) {
+          const target = next.find((entity) => entity.id === instance.entityId); if (!target) continue;
+          const replacement = geometryOnto(target, circularPatternSketchEntity(source, center, step * instance.index, link.rotateInstances, target.id));
+          next = next.map((entity) => entity.id === target.id ? replacement : entity);
+        }
+      }
+      continue;
+    }
+    const first = resolvePatternDirection(link.direction1, next, externalReferences); const direction1 = { x: first.x * (link.flip1 ? -1 : 1), y: first.y * (link.flip1 ? -1 : 1) };
+    const resolvedSecond = link.direction2 ? resolvePatternDirection(link.direction2, next, externalReferences) : { x: -direction1.y, y: direction1.x };
+    const direction2 = { x: resolvedSecond.x * (link.flip2 ? -1 : 1), y: resolvedSecond.y * (link.flip2 ? -1 : 1) };
+    for (const pair of link.pairs) {
+      let source = next.find((entity) => entity.id === pair.sourceId); if (!source) continue;
+      const changedInstance = pair.instances.find((instance) => changedEntityIds.has(instance.entityId));
+      if (changedInstance && !changedEntityIds.has(source.id)) {
+        const driver = next.find((entity) => entity.id === changedInstance.entityId);
+        if (driver) { source = geometryOnto(source, inverseLinearPatternEntity(driver, direction1, link.spacing1, changedInstance.column, direction2, link.spacing2 ?? 0, changedInstance.row, source.id)); next = next.map((entity) => entity.id === source!.id ? source! : entity); }
+      }
+      for (const instance of pair.instances) {
+        const target = next.find((entity) => entity.id === instance.entityId); if (!target) continue;
+        const replacement = geometryOnto(target, linearPatternSketchEntity(source, direction1, link.spacing1, instance.column, direction2, link.spacing2 ?? 0, instance.row, target.id));
+        next = next.map((entity) => entity.id === target.id ? replacement : entity);
+      }
+    }
+  }
+  return next;
+}
+
 export function entityBadgePoint(entity: SketchEntity): Point {
   if (entity.type === "line") return midpoint(entity.a, entity.b);
   if (entity.type === "circle" || entity.type === "ellipse") return entity.c;
@@ -472,10 +783,97 @@ function trimLine(target: Extract<SketchEntity, { type: "line" }>, click: Point,
   }]);
 }
 
+function cubicSplit(a: Point, b: Point, c: Point, d: Point, amount: number): [[Point, Point, Point, Point], [Point, Point, Point, Point]] {
+  const ab = lerpPoint(a, b, amount); const bc = lerpPoint(b, c, amount); const cd = lerpPoint(c, d, amount);
+  const abc = lerpPoint(ab, bc, amount); const bcd = lerpPoint(bc, cd, amount); const point = lerpPoint(abc, bcd, amount);
+  return [[a, ab, abc, point], [point, bcd, cd, d]];
+}
+
+function cubicSection(a: Point, b: Point, c: Point, d: Point, start: number, end: number): [Point, Point, Point, Point] {
+  const [throughEnd] = cubicSplit(a, b, c, d, end);
+  if (start <= EPSILON) return throughEnd;
+  const [, section] = cubicSplit(...throughEnd, start / Math.max(end, EPSILON));
+  return section;
+}
+
+function splineSection(target: Extract<SketchEntity, { type: "spline" }>, start: number, end: number): Extract<SketchEntity, { type: "spline" }> | null {
+  const spanCount = target.points.length - 1;
+  if (spanCount < 1 || end - start < EPSILON) return null;
+  const handles = target.handles?.length === target.points.length ? target.handles : automaticSplineHandles(target.points);
+  const points: Point[] = []; const nextHandles: SplineHandlePair[] = [];
+  const appendRange = (rangeStart: number, rangeEnd: number) => {
+    for (let span = Math.floor(rangeStart); span < Math.ceil(rangeEnd - EPSILON); span++) {
+      const localStart = Math.max(0, rangeStart - span); const localEnd = Math.min(1, rangeEnd - span);
+      if (localEnd - localStart < EPSILON) continue;
+      const section = cubicSection(target.points[span], handles[span].out, handles[span + 1].in, target.points[span + 1], localStart, localEnd);
+      if (!points.length) { points.push(section[0]); nextHandles.push({ in: section[0], out: section[1] }); }
+      else nextHandles[nextHandles.length - 1].out = section[1];
+      points.push(section[3]); nextHandles.push({ in: section[2], out: section[3] });
+    }
+  };
+  if (end <= spanCount + EPSILON) appendRange(start, Math.min(end, spanCount));
+  else { appendRange(start, spanCount); appendRange(0, end - spanCount); }
+  if (points.length < 2) return null;
+  return { id: trimId(target.id), type: "spline", construction: target.construction, points, handles: nextHandles, relations: ["Trimmed"] };
+}
+
+function trimSpline(target: Extract<SketchEntity, { type: "spline" }>, click: Point, others: SketchEntity[]): SketchEntity[] {
+  if (target.points.length < 2) return [];
+  const samplesPerSpan = 40; const samples = sampleSplineEntity(target, samplesPerSpan); const spanCount = target.points.length - 1;
+  const cuts = uniquePoints(others.flatMap((other) => {
+    const otherSamples = sampleSketchEntity(other);
+    return samples.slice(1).flatMap((point, targetIndex) => otherSamples.slice(1).flatMap((otherPoint, otherIndex) => {
+      const hit = segmentIntersection(samples[targetIndex], point, otherSamples[otherIndex], otherPoint);
+      return hit ? [{ point: hit.point, parameter: (targetIndex + hit.firstAmount) / samplesPerSpan }] : [];
+    }));
+  }).map((candidate) => candidate.point), 0.025).map((point) => {
+    let best = { parameter: 0, distance: Number.POSITIVE_INFINITY };
+    samples.slice(1).forEach((sample, index) => {
+      const nearest = closestPointOnSegment(point, samples[index], sample); const separation = distance(point, nearest);
+      if (separation < best.distance) {
+        const segmentLength = distance(samples[index], sample); const amount = segmentLength > EPSILON ? distance(samples[index], nearest) / segmentLength : 0;
+        best = { parameter: (index + amount) / samplesPerSpan, distance: separation };
+      }
+    });
+    return best.parameter;
+  }).filter((parameter) => parameter > EPSILON && parameter < spanCount - EPSILON).sort((first, second) => first - second);
+  if (!cuts.length) return [];
+  let clickParameter = 0; let clickDistance = Number.POSITIVE_INFINITY;
+  samples.slice(1).forEach((sample, index) => {
+    const nearest = closestPointOnSegment(click, samples[index], sample); const separation = distance(click, nearest);
+    if (separation < clickDistance) {
+      const segmentLength = distance(samples[index], sample); const amount = segmentLength > EPSILON ? distance(samples[index], nearest) / segmentLength : 0;
+      clickParameter = (index + amount) / samplesPerSpan; clickDistance = separation;
+    }
+  });
+  const closed = distance(target.points[0], target.points.at(-1)!) < 0.001;
+  if (closed) {
+    if (cuts.length < 2) return [target];
+    const intervals = cuts.map((start, index) => ({ start, end: index === cuts.length - 1 ? cuts[0] + spanCount : cuts[index + 1] }));
+    const removed = intervals.findIndex(({ start, end }) => { const adjusted = clickParameter < start ? clickParameter + spanCount : clickParameter; return adjusted >= start - EPSILON && adjusted <= end + EPSILON; });
+    return intervals.flatMap((interval, index) => index === removed ? [] : [splineSection(target, interval.start, interval.end)]).filter((entity): entity is Extract<SketchEntity, { type: "spline" }> => entity !== null);
+  }
+  const bounds = [0, ...cuts, spanCount];
+  const removed = Math.max(0, bounds.findIndex((value, index) => index < bounds.length - 1 && clickParameter >= value - EPSILON && clickParameter <= bounds[index + 1] + EPSILON));
+  return bounds.slice(0, -1).flatMap((start, index) => index === removed ? [] : [splineSection(target, start, bounds[index + 1])]).filter((entity): entity is Extract<SketchEntity, { type: "spline" }> => entity !== null);
+}
+
+export function sketchStrokeHits(entities: SketchEntity[], start: Point, end: Point): { entityId: string; point: Point }[] {
+  return entities.flatMap((entity) => {
+    const samples = entity.type === "spline" ? sampleSplineEntity(entity, 40) : sampleSketchEntity(entity);
+    const hits = samples.slice(1).flatMap((point, index) => {
+      const hit = segmentIntersection(start, end, samples[index], point);
+      return hit ? [{ point: hit.point, amount: hit.firstAmount }] : [];
+    }).sort((first, second) => first.amount - second.amount);
+    return hits[0] ? [{ entityId: entity.id, point: hits[0].point, amount: hits[0].amount }] : [];
+  }).sort((first, second) => first.amount - second.amount).map(({ entityId, point }) => ({ entityId, point }));
+}
+
 export function trimEntityAtPoint(target: SketchEntity, click: Point, entities: SketchEntity[]): SketchEntity[] {
   const others = entities.filter((entity) => entity.id !== target.id);
   if (target.type === "circle") return trimCircle(target, click, others);
   if (target.type === "ellipse") return trimEllipse(target, click, others);
   if (target.type === "line") return trimLine(target, click, others);
+  if (target.type === "spline") return trimSpline(target, click, others);
   return [target];
 }

@@ -240,6 +240,114 @@ def indexed_items(items: list, requested: list, label: str) -> list:
     return [items[index - 1] for index in indices]
 
 
+def faces_cover_neutral_boundary(neutral_face: cq.Face, draft_faces: list[cq.Face]) -> bool:
+    """Return true when the selected side faces own the complete neutral outline.
+
+    Open CASCADE's face-by-face draft builder only accepts planes, cylinders,
+    and cones.  An extrusion of a closed spline instead has one swept side
+    face whose boundary owns the full neutral outline.  Recognizing that case
+    lets us rebuild the prism as a loft without silently drafting unrelated
+    faces on a segmented profile.
+    """
+    selected_edges = [edge for face in draft_faces for edge in face.Edges()]
+    return all(any(boundary.isSame(selected) for selected in selected_edges) for boundary in neutral_face.outerWire().Edges())
+
+
+def make_full_profile_draft(body: cq.Shape, neutral_face: cq.Face, draft_faces: list[cq.Face], angle: float, reverse: bool) -> cq.Shape:
+    if neutral_face.innerWires():
+        raise ValueError("Curved-face draft currently requires a neutral face without holes.")
+    if not faces_cover_neutral_boundary(neutral_face, draft_faces):
+        raise ValueError("Select every curved side face around the neutral-face outline so their corner joins can rebuild together.")
+
+    normal = neutral_face.normalAt().normalized()
+    center = neutral_face.Center()
+    opposite_caps: list[tuple[float, cq.Face]] = []
+    for face in body.Faces():
+        if face.isSame(neutral_face) or face.geomType() != "PLANE":
+            continue
+        try:
+            face_normal = face.normalAt().normalized()
+            signed_height = face.Center().sub(center).dot(normal)
+            if abs(face_normal.dot(normal)) > 0.999 and abs(signed_height) > 1e-6:
+                opposite_caps.append((signed_height, face))
+        except Exception:
+            continue
+    if not opposite_caps:
+        raise ValueError("The curved draft requires a parallel opposite cap so the original extrusion height can be preserved.")
+
+    signed_height, _ = max(opposite_caps, key=lambda item: abs(item[0]))
+    draft_distance = abs(signed_height) * math.tan(math.radians(angle)) * (-1 if reverse else 1)
+    base_wire = neutral_face.outerWire()
+    offset_wires: list[cq.Wire] = []
+    for transition in ("intersection", "arc"):
+        try:
+            offset_wires = base_wire.offset2D(draft_distance, kind=transition)
+            if offset_wires:
+                break
+        except Exception:
+            offset_wires = []
+    if len(offset_wires) != 1:
+        raise ValueError("The pointed or curved outline cannot support this draft angle. Reduce the angle or simplify the neutral outline.")
+
+    opposite_wire = offset_wires[0].translate(normal.multiply(signed_height))
+    result = cq.Solid.makeLoft([base_wire, opposite_wire], ruled=False)
+    if not result.isValid() or not result.Solids():
+        raise ValueError("The curved draft did not create a valid joined solid. Reduce the angle or reverse its direction.")
+    return result
+
+
+def inward_offset_wire(wire: cq.Wire, thickness: float) -> cq.Wire:
+    """Return the smaller of the two planar offsets, independent of wire orientation."""
+    original_area = cq.Face.makeFromWires(wire).Area()
+    candidates: list[tuple[float, cq.Wire]] = []
+    for signed_distance in (-thickness, thickness):
+        try:
+            for offset in wire.offset2D(signed_distance, kind="intersection"):
+                area = cq.Face.makeFromWires(offset).Area()
+                if 1e-6 < area < original_area - 1e-6:
+                    candidates.append((area, offset))
+        except Exception:
+            continue
+    if not candidates:
+        raise ValueError("The opening profile is too tight for this wall thickness.")
+    return max(candidates, key=lambda candidate: candidate[0])[1]
+
+
+def make_planar_open_shell_fallback(body: cq.Shape, removed_face: cq.Face, thickness: float) -> cq.Shape:
+    """Shell lofted/drafted hulls whose pointed spline join defeats OCC's offset shell."""
+    if removed_face.geomType() != "PLANE":
+        raise ValueError("The fallback shell opening must be planar.")
+    opening_normal = removed_face.normalAt().normalized()
+    opening_center = removed_face.Center()
+    opposite_candidates: list[tuple[float, cq.Face]] = []
+    for face in body.Faces():
+        if face.isSame(removed_face) or face.geomType() != "PLANE":
+            continue
+        normal = face.normalAt().normalized()
+        alignment = abs(normal.dot(opening_normal))
+        separation = abs(face.Center().sub(opening_center).dot(opening_normal))
+        if alignment > 0.98 and separation > thickness * 1.05:
+            opposite_candidates.append((separation, face))
+    if not opposite_candidates:
+        raise ValueError("No opposite planar wall can define the inside bottom of this shell.")
+    depth, opposite_face = max(opposite_candidates, key=lambda candidate: candidate[0])
+    if depth <= thickness * 1.05:
+        raise ValueError("The body is not deep enough for this wall thickness.")
+
+    opening_inner = inward_offset_wire(removed_face.outerWire(), thickness)
+    bottom_inner = inward_offset_wire(opposite_face.outerWire(), thickness)
+    toward_opening = opening_center.sub(opposite_face.Center()).normalized()
+    bottom_inner = bottom_inner.translate(toward_opening.multiply(thickness))
+    try:
+        cavity = cq.Solid.makeLoft([bottom_inner, opening_inner], ruled=False)
+        result = body.cut(cavity)
+    except Exception as error:
+        raise ValueError("The inset hull profiles could not form a continuous interior cavity.") from error
+    if not result.isValid() or not result.Solids():
+        raise ValueError("The inset hull profiles did not create a valid thin-walled solid.")
+    return result.Solids()[0] if len(result.Solids()) == 1 else result
+
+
 def apply_body_feature(body: cq.Shape, feature: dict) -> cq.Shape:
     operation = feature.get("type") or feature.get("operation")
     if operation in ("fillet", "chamfer"):
@@ -288,26 +396,47 @@ def apply_body_feature(body: cq.Shape, feature: dict) -> cq.Shape:
         angle = abs(float(feature.get("angle", 3)))
         if angle <= 0 or angle >= 89:
             raise ValueError("Draft angle must be greater than 0° and less than 89°.")
-        normal = neutral_face.normalAt().normalized()
-        if feature.get("reverse"):
-            normal = normal.multiply(-1)
-        center = neutral_face.Center()
-        direction = gp_Dir(normal.x, normal.y, normal.z)
-        neutral_plane = gp_Pln(gp_Pnt(center.x, center.y, center.z), direction)
-        builder = BRepOffsetAPI_DraftAngle(body.wrapped)
+        unsupported_faces = [face for face in draft_faces if face.geomType() not in ("PLANE", "CYLINDER", "CONE")]
+        if unsupported_faces:
+            result = make_full_profile_draft(body, neutral_face, draft_faces, angle, bool(feature.get("reverse")))
+        else:
+            normal = neutral_face.normalAt().normalized()
+            if feature.get("reverse"):
+                normal = normal.multiply(-1)
+            center = neutral_face.Center()
+            direction = gp_Dir(normal.x, normal.y, normal.z)
+            neutral_plane = gp_Pln(gp_Pnt(center.x, center.y, center.z), direction)
+            builder = BRepOffsetAPI_DraftAngle(body.wrapped)
+            try:
+                for face in draft_faces:
+                    builder.Add(face.wrapped, direction, math.radians(angle), neutral_plane, True)
+                    if not builder.AddDone():
+                        raise ValueError("One of the selected faces cannot be drafted from this neutral plane.")
+                builder.Build()
+                if not builder.IsDone():
+                    raise ValueError("The selected faces and angle did not create a valid draft.")
+                result = cq.Shape.cast(builder.Shape())
+            except ValueError:
+                raise
+            except Exception as error:
+                raise ValueError("The draft could not be created. Reduce the angle or select different faces.") from error
+    elif operation == "shell":
+        removed_faces = indexed_items(body.Faces(), feature.get("faceIndices") or [], "face to remove")
+        thickness = abs(float(feature.get("thickness", 2)))
+        if thickness <= 0:
+            raise ValueError("Shell thickness must be greater than zero.")
+        signed_thickness = thickness if feature.get("outward") else -thickness
         try:
-            for face in draft_faces:
-                builder.Add(face.wrapped, direction, math.radians(angle), neutral_plane, True)
-                if not builder.AddDone():
-                    raise ValueError("One of the selected faces cannot be drafted from this neutral plane.")
-            builder.Build()
-            if not builder.IsDone():
-                raise ValueError("The selected faces and angle did not create a valid draft.")
-            result = cq.Shape.cast(builder.Shape())
-        except ValueError:
-            raise
+            result = cq.Workplane(obj=body).newObject(removed_faces).shell(signed_thickness).val()
         except Exception as error:
-            raise ValueError("The draft could not be created. Reduce the angle or select different faces.") from error
+            if not feature.get("outward") and len(removed_faces) == 1:
+                try:
+                    result = make_planar_open_shell_fallback(body, removed_faces[0], thickness)
+                except Exception as fallback_error:
+                    raise ValueError("The inward shell could not be created. Reduce the wall thickness, remove a different face, or simplify tight corners.") from fallback_error
+            else:
+                direction = "outward" if feature.get("outward") else "inward"
+                raise ValueError(f"The {direction} shell could not be created. Reduce the wall thickness, remove a different face, or simplify tight corners.") from error
     else:
         raise ValueError(f"Unsupported body feature operation: {operation}")
     if not result.isValid() or not result.Solids():
@@ -514,7 +643,7 @@ def build_document(payload: dict) -> tuple[dict[str, cq.Shape], list[dict], list
     plane_cache: dict[str, cq.Plane] = {}
     feature_results = []
     for feature in payload.get("features", []):
-        if feature.get("type") in ("fillet", "chamfer", "draft"):
+        if feature.get("type") in ("fillet", "chamfer", "draft", "shell"):
             body_id = feature.get("targetBodyId")
             if body_id not in bodies:
                 raise ValueError(f"Feature {feature.get('name', feature.get('id'))} references a missing target body.")
@@ -606,7 +735,7 @@ def document_payload(payload: dict) -> dict:
     preview_feature = payload.get("previewFeature")
     if preview_feature:
         preview_shape = None
-        if preview_feature.get("type") in ("fillet", "chamfer", "draft"):
+        if preview_feature.get("type") in ("fillet", "chamfer", "draft", "shell"):
             preview_target_body_id = preview_feature.get("targetBodyId")
             target_body = bodies.get(preview_target_body_id)
             if target_body:

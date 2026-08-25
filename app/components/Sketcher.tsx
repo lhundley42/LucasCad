@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { automaticSplineHandles, circumcircle, cornerLines, deleteSplinePoint, distance, entityBadgePoint, entityInSelectionBox, extendEntityToTarget, insertSplinePoint, midpoint, mirrorSketchEntity, nearestGridVertex, normalizedSelectionBox, perpendicularLineToReference, pointInSelectionBox, sketchRelationIsSatisfied, synchronizeMirrorLinks, translateSketchEntity, trimEntityAtPoint, type Point, type SketchEntity, type SplineHandlePair } from "./sketchGeometry";
-import { angularDimensionLayout, angularDimensionValue, constraintSupersedesOrthogonalProfileDimension, constraintSupersedesSegmentDimension, controlPointsForEntity, cycleLinearOrientation, defaultLinearDimensionPosition, defaultLinearOrientation, diameterDimensionLayout, diameterDimensionValue, dimensionReferencePoints, linearDimensionLayout, linearDimensionValue, linearOrientationOptions, lineFor, nonOverlappingReferenceHitRadius, preferredAxisOrSketchLineTarget, referencePoint, targetPointForAngularValue, targetPointForLinearValue, validLinearDimensionPair, type DiameterDimensionConstraint, type ExternalSketchReference, type LinearDimensionConstraint, type LinearOrientation, type MirrorConstraint, type SketchConstraint, type SketchReference } from "./sketchConstraints";
+import { analyzeSketchContours, automaticSplineHandles, circularPatternSketchEntity, circularPatternStep, circumcircle, cornerEntities, deleteSplinePoint, distance, entityBadgePoint, entityInSelectionBox, extendEntityToTarget, insertSplinePoint, linearPatternSketchEntity, midpoint, mirrorSketchEntity, nearestGridVertex, normalizedSelectionBox, perpendicularLineToReference, pointInSelectionBox, resolvePatternCenter, resolvePatternDirection, sketchRelationIsSatisfied, sketchStrokeHits, synchronizeMirrorLinks, synchronizePatternLinks, translateSketchEntity, trimEntityAtPoint, type Point, type SketchCheckResult, type SketchEntity, type SplineHandlePair } from "./sketchGeometry";
+import { angularDimensionLayout, angularDimensionValue, constraintSupersedesOrthogonalProfileDimension, constraintSupersedesSegmentDimension, controlPointsForEntity, cycleLinearOrientation, defaultLinearDimensionPosition, defaultLinearOrientation, diameterDimensionLayout, diameterDimensionValue, dimensionReferencePoints, linearDimensionLayout, linearDimensionValue, linearOrientationOptions, lineFor, nonOverlappingReferenceHitRadius, preferredAxisOrSketchLineTarget, referencePoint, targetPointForAngularValue, targetPointForLinearValue, validLinearDimensionPair, type CircularPatternConstraint, type DiameterDimensionConstraint, type ExternalSketchReference, type LinearDimensionConstraint, type LinearOrientation, type LinearPatternConstraint, type MirrorConstraint, type PatternCenterReference, type PatternConstraint, type PatternDirectionReference, type SketchConstraint, type SketchReference } from "./sketchConstraints";
 import { formatLength, fromMillimeters, toMillimeters, type UnitSystem } from "./units";
+import { BufferedNumberInput, keyboardEventOwnedByControl } from "./BufferedNumberInput";
 export type { Point, SketchEntity } from "./sketchGeometry";
 export type { ExternalSketchReference, LinearDimensionConstraint, SketchConstraint } from "./sketchConstraints";
 
-type Tool = "select" | "line" | "centerline" | "rectangle" | "circle" | "ellipse" | "arc" | "spline" | "trim" | "extend" | "corner" | "mirror" | "linear-dimension" | "angular-dimension" | "diameter-dimension" | "perpendicular-constraint" | "horizontal-constraint" | "vertical-constraint";
+type Tool = "select" | "sketch-check" | "line" | "centerline" | "rectangle" | "circle" | "ellipse" | "arc" | "spline" | "trim" | "extend" | "corner" | "mirror" | "linear-pattern" | "rectangular-pattern" | "circular-pattern" | "linear-dimension" | "angular-dimension" | "diameter-dimension" | "perpendicular-constraint" | "horizontal-constraint" | "vertical-constraint";
 type Snap = { point: Point; kind: "endpoint" | "midpoint" | "center" | "quadrant" | "grid" | "horizontal" | "vertical" };
 type DimensionInfo = { key: string; entityId: string; axis?: "major" | "minor"; anchor: Point; offset: Point; text: string; value: number };
 type DimensionDrag = { key: string; pointerId: number; startPoint: Point; originalOffset: Point; captureTarget: SVGGElement };
@@ -18,12 +19,38 @@ type SplineHandleDrag = { entityId: string; pointIndex: number; side: "in" | "ou
 type AxisRelation = "Horizontal" | "Vertical";
 type ConstraintShortcut = { x: number; y: number; entityId: string; relation: AxisRelation };
 type SplineContextMenu = { x: number; y: number; entityId: string; kind: "point" | "curve"; pointIndex?: number; point: Point };
+type TrimGesture = { pointerId: number; points: Point[]; hits: { entityId: string; point: Point }[]; originalEntities: SketchEntity[] };
+type PatternTool = Extract<Tool, "linear-pattern" | "rectangular-pattern" | "circular-pattern">;
+type PatternDraft = {
+  kind: PatternTool;
+  stage: "entities" | "direction-1" | "direction-2" | "center" | "parameters";
+  seedIds: string[];
+  direction1?: PatternDirectionReference;
+  direction2?: PatternDirectionReference;
+  center?: PatternCenterReference;
+  count1: number;
+  spacing1: number;
+  flip1: boolean;
+  count2: number;
+  spacing2: number;
+  flip2: boolean;
+  circularCount: number;
+  span: number;
+  radius: number;
+  arcAngle: number;
+  equalSpacing: boolean;
+  reverse: boolean;
+  rotateInstances: boolean;
+  skipped: number[];
+};
 export type SketchView = { center: Point; zoom: number };
 
 const VIEW = { x: -260, y: -180, width: 520, height: 360 };
 const DEFAULT_VIEW: SketchView = { center: { x: 0, y: 0 }, zoom: 1 };
 const nextId = () => `entity-${crypto.randomUUID()}`;
 const fmt = (value: number) => value.toFixed(value < 10 ? 2 : 1).replace(/\.0$/, "");
+const isPatternConstraint = (constraint: SketchConstraint): constraint is PatternConstraint => constraint.type === "linear-pattern" || constraint.type === "rectangular-pattern" || constraint.type === "circular-pattern";
+const isDimensionConstraint = (constraint: SketchConstraint): constraint is Exclude<SketchConstraint, MirrorConstraint | PatternConstraint> => constraint.type === "linear" || constraint.type === "angular" || constraint.type === "diameter";
 
 function dimensionArrowPath(first: Point, second: Point, scale: number) {
   const dx = second.x - first.x; const dy = second.y - first.y; const length = Math.max(Math.hypot(dx, dy), 1e-9);
@@ -145,6 +172,7 @@ function dimensionsFor(entity: SketchEntity): DimensionInfo[] {
 export function Sketcher({ entities: controlledEntities, constraints: controlledConstraints = [], externalReferences = [], dimensionOffsets: controlledDimensionOffsets = {}, dimensionTextScale = 0.5, nodeDiameterPx = 4, highlightWidthPx = 1.2, gridSquareSize = 8, unitSystem = "metric", onChange, onConstraintsChange, onDimensionOffsetsChange, onFinish, view = DEFAULT_VIEW, viewRotated = false, onSnapNormal }: { entities?: SketchEntity[]; constraints?: SketchConstraint[]; externalReferences?: ExternalSketchReference[]; dimensionOffsets?: Record<string, Point>; dimensionTextScale?: number; nodeDiameterPx?: number; highlightWidthPx?: number; gridSquareSize?: number; unitSystem?: UnitSystem; onChange?: (entities: SketchEntity[]) => void; onConstraintsChange?: (constraints: SketchConstraint[]) => void; onDimensionOffsetsChange?: (offsets: Record<string, Point>) => void; onFinish: () => void; view?: SketchView; viewRotated?: boolean; onSnapNormal?: () => void }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const dimensionInputRef = useRef<HTMLInputElement>(null);
+  const cancelDimensionEditOnBlur = useRef(false);
   const [entities, setEntitiesState] = useState<SketchEntity[]>(() => controlledEntities ?? []);
   const [tool, setTool] = useState<Tool>("select");
   const [draft, setDraft] = useState<Point[]>([]);
@@ -185,6 +213,14 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
   const [perpendicularSource, setPerpendicularSource] = useState<string | null>(null);
   const [perpendicularMessage, setPerpendicularMessage] = useState<string | null>(null);
   const [mirrorMessage, setMirrorMessage] = useState<string | null>(null);
+  const [mirrorStage, setMirrorStage] = useState<"entities" | "axis">("entities");
+  const [patternDraft, setPatternDraft] = useState<PatternDraft | null>(null);
+  const [patternSkippedInput, setPatternSkippedInput] = useState<string | null>(null);
+  const [patternMessage, setPatternMessage] = useState<string | null>(null);
+  const [trimGesture, setTrimGesture] = useState<TrimGesture | null>(null);
+  const [trimMessage, setTrimMessage] = useState<string | null>(null);
+  const [sketchCheck, setSketchCheck] = useState<SketchCheckResult | null>(null);
+  const [sketchCheckMessage, setSketchCheckMessage] = useState<string | null>(null);
   const dragStartRef = useRef<SketchEntity[] | null>(null);
   const lineClickRef = useRef<{ entityId: string; at: number } | null>(null);
   const selected = selectedEntityIds.at(-1) ?? null;
@@ -192,18 +228,19 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
   const setSelected = (entityId: string | null) => setSelectedEntityIds(entityId ? [entityId] : []);
   const setSelectedConstraintId = (constraintId: string | null) => setSelectedConstraintIds(constraintId ? [constraintId] : []);
 
-  const synchronizeMirrors = useCallback((next: SketchEntity[], previous = entities, activeConstraints = constraints) => {
+  const synchronizeLinkedGeometry = useCallback((next: SketchEntity[], previous = entities, activeConstraints = constraints) => {
     const previousById = new Map(previous.map((entity) => [entity.id, JSON.stringify(entity)]));
     const changed = new Set(next.filter((entity) => previousById.get(entity.id) !== JSON.stringify(entity)).map((entity) => entity.id));
-    return synchronizeMirrorLinks(next, activeConstraints.filter((constraint): constraint is MirrorConstraint => constraint.type === "mirror"), changed);
-  }, [constraints, entities]);
+    const mirrored = synchronizeMirrorLinks(next, activeConstraints.filter((constraint): constraint is MirrorConstraint => constraint.type === "mirror"), changed);
+    return synchronizePatternLinks(mirrored, activeConstraints.filter(isPatternConstraint), changed, externalReferences);
+  }, [constraints, entities, externalReferences]);
   const commit = useCallback((next: SketchEntity[]) => {
-    const synchronized = synchronizeMirrors(next);
+    const synchronized = synchronizeLinkedGeometry(next);
     setHistory((items) => [...items.slice(-39), entities]);
     setFuture([]);
     setEntitiesState(synchronized);
     onChange?.(synchronized);
-  }, [entities, onChange, synchronizeMirrors]);
+  }, [entities, onChange, synchronizeLinkedGeometry]);
   const commitConstraints = useCallback((next: SketchConstraint[]) => { setConstraintsState(next); onConstraintsChange?.(next); }, [onConstraintsChange]);
   const undo = () => { const previous = history.at(-1); if (!previous) return; setFuture((items) => [entities, ...items]); setHistory((items) => items.slice(0, -1)); setEntitiesState(previous); onChange?.(previous); };
   const redo = () => { const next = future[0]; if (!next) return; setHistory((items) => [...items, entities]); setFuture((items) => items.slice(1)); setEntitiesState(next); onChange?.(next); };
@@ -301,10 +338,13 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
   };
 
   const clearSelection = () => { setSelectedEntityIds([]); setSelectedConstraintIds([]); setSelectedDimensionKeys([]); setSelectedAxisConstraint(null); };
-  const constraintReferencesEntity = (constraint: SketchConstraint, entityIds: Set<string>) => constraint.type === "mirror"
-    ? entityIds.has(constraint.axisEntityId) || constraint.pairs.some((pair) => entityIds.has(pair.sourceId) || entityIds.has(pair.mirroredId))
-    : constraint.type === "diameter" ? entityIds.has(constraint.entityId)
-    : [constraint.first, constraint.second].some((reference) => (reference.kind === "node" || reference.kind === "line") && entityIds.has(reference.entityId));
+  const constraintReferencesEntity = (constraint: SketchConstraint, entityIds: Set<string>) => {
+    if (constraint.type === "mirror") return entityIds.has(constraint.axisEntityId) || constraint.pairs.some((pair) => entityIds.has(pair.sourceId) || entityIds.has(pair.mirroredId));
+    if (constraint.type === "linear-pattern" || constraint.type === "rectangular-pattern") return (constraint.direction1.kind === "entity" && entityIds.has(constraint.direction1.entityId)) || (constraint.direction2?.kind === "entity" && entityIds.has(constraint.direction2.entityId)) || constraint.pairs.some((pair) => entityIds.has(pair.sourceId) || pair.instances.some((instance) => entityIds.has(instance.entityId)));
+    if (constraint.type === "circular-pattern") return (constraint.center.kind === "entity-node" && entityIds.has(constraint.center.entityId)) || constraint.pairs.some((pair) => entityIds.has(pair.sourceId) || pair.instances.some((instance) => entityIds.has(instance.entityId)));
+    if (constraint.type === "diameter") return entityIds.has(constraint.entityId);
+    return [constraint.first, constraint.second].some((reference) => (reference.kind === "node" || reference.kind === "line") && entityIds.has(reference.entityId));
+  };
   const deleteSelection = () => {
     if (editingDimension || editingConstraintId) return;
     const entityIds = new Set(selectedEntityIds); const constraintIds = new Set(selectedConstraintIds);
@@ -317,6 +357,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      if (keyboardEventOwnedByControl(event.target)) return;
       if (event.key === "Escape") { setEditingConstraintId(null); setConstraintShortcut(null); setSplineContextMenu(null); finishChain(); }
       if (event.key === "Tab" && tool === "linear-dimension" && dimensionReferences.length === 2) { event.preventDefault(); setDimensionOrientation((orientation) => cycleLinearOrientation(orientation, dimensionOptions)); }
       if ((event.key === "Delete" || event.key === "Backspace") && (selectedEntityIds.length || selectedConstraintIds.length || selectedDimensionKeys.length || selectedAxisConstraint) && !editingDimension && !editingConstraintId) { event.preventDefault(); deleteSelection(); }
@@ -329,9 +370,17 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
 
   useEffect(() => {
     if (!editingDimension && !editingConstraintId) return;
+    cancelDimensionEditOnBlur.current = false;
     const frame = requestAnimationFrame(() => { dimensionInputRef.current?.focus(); dimensionInputRef.current?.select(); });
     return () => cancelAnimationFrame(frame);
   }, [editingConstraintId, editingDimension]);
+
+  useEffect(() => {
+    const patternConstraints = constraints.filter(isPatternConstraint); if (!patternConstraints.length) return;
+    const synchronized = synchronizePatternLinks(entities, patternConstraints, new Set(), externalReferences);
+    if (JSON.stringify(synchronized) !== JSON.stringify(entities)) { setEntitiesState(synchronized); onChange?.(synchronized); }
+    // External model edges and plane intersections are live pattern references.
+  }, [externalReferences]);
 
   const beginSelectionDrag = (event: React.PointerEvent<SVGElement>) => {
     if (event.button !== 0) return;
@@ -340,7 +389,23 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     svgRef.current?.setPointerCapture(event.pointerId);
   };
 
+  const beginTrimGesture = (event: React.PointerEvent<SVGElement>, entityId?: string) => {
+    if (event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation(); setSelected(null); setSnap(null);
+    const point = pointFromEvent(event);
+    setTrimGesture({ pointerId: event.pointerId, points: [point], hits: entityId ? [{ entityId, point }] : [], originalEntities: entities });
+    setTrimMessage("Trim · drag the dotted cutter across every segment to remove, then release");
+    svgRef.current?.setPointerCapture(event.pointerId);
+  };
+
   const onMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (trimGesture) {
+      const current = pointFromEvent(event); const previous = trimGesture.points.at(-1)!;
+      const crossed = sketchStrokeHits(trimGesture.originalEntities, previous, current).filter((hit) => !trimGesture.hits.some((existing) => existing.entityId === hit.entityId));
+      setTrimGesture({ ...trimGesture, points: [...trimGesture.points, current], hits: [...trimGesture.hits, ...crossed] });
+      setTrimMessage(crossed.length || trimGesture.hits.length ? `Trim · ${trimGesture.hits.length + crossed.length} ${trimGesture.hits.length + crossed.length === 1 ? "segment" : "segments"} queued · release to trim` : "Trim · cross a sketch segment with the dotted cutter");
+      setCursor(current); setSnap(null); return;
+    }
     if (selectionMarquee) {
       const current = pointFromEvent(event); setSelectionMarquee({ ...selectionMarquee, current }); setCursor(current); setSnap(null); return;
     }
@@ -348,7 +413,8 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
       const current = pointFromEvent(event); const delta = { x: current.x - draggingSelection.start.x, y: current.y - draggingSelection.start.y };
       const entityIds = new Set(selectedEntityIds);
       const translatedEntities = draggingSelection.originalEntities.map((entity) => entityIds.has(entity.id) ? translateSketchEntity(entity, delta) : entity);
-      const nextEntities = synchronizeMirrorLinks(translatedEntities, draggingSelection.originalConstraints.filter((constraint): constraint is MirrorConstraint => constraint.type === "mirror"), entityIds);
+      const mirroredEntities = synchronizeMirrorLinks(translatedEntities, draggingSelection.originalConstraints.filter((constraint): constraint is MirrorConstraint => constraint.type === "mirror"), entityIds);
+      const nextEntities = synchronizePatternLinks(mirroredEntities, draggingSelection.originalConstraints.filter(isPatternConstraint), entityIds, externalReferences);
       const modelScale = dimensionModelScale();
       const nextOffsets = { ...draggingSelection.originalDimensionOffsets };
       selectedDimensionKeys.forEach((key) => {
@@ -358,7 +424,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
         nextOffsets[key] = { x: original.x + delta.x / modelScale, y: original.y + delta.y / modelScale };
       });
       const nextConstraints = draggingSelection.originalConstraints.map((constraint) => {
-        if (constraint.type === "mirror") return constraint;
+        if (constraint.type === "mirror" || isPatternConstraint(constraint)) return constraint;
         const positioned = selectedConstraintIds.includes(constraint.id) ? { ...constraint, position: { x: constraint.position.x + delta.x, y: constraint.position.y + delta.y } } : constraint;
         const actual = positioned.type === "linear" ? linearDimensionValue(positioned.first, positioned.second, positioned.orientation, nextEntities) : positioned.type === "angular" ? angularDimensionValue(positioned.first, positioned.second, positioned.position, nextEntities) : diameterDimensionValue(positioned.entityId, nextEntities);
         return { ...positioned, conflicted: Math.abs(actual - positioned.value) > (positioned.type === "angular" ? 0.1 : 0.01) };
@@ -378,7 +444,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
       if (event.altKey) { const opposite = draggingSplineHandle.side === "in" ? "out" : "in"; handles[draggingSplineHandle.pointIndex][opposite] = { x: point.x * 2 - raw.x, y: point.y * 2 - raw.y }; }
       const closed = source.points.length > 2 && distance(source.points[0], source.points.at(-1)!) < 0.001;
       if (closed && (draggingSplineHandle.pointIndex === 0 || draggingSplineHandle.pointIndex === source.points.length - 1)) { const pairedIndex = draggingSplineHandle.pointIndex === 0 ? source.points.length - 1 : 0; handles[pairedIndex] = { in: { ...handles[draggingSplineHandle.pointIndex].in }, out: { ...handles[draggingSplineHandle.pointIndex].out } }; }
-      const next = synchronizeMirrors(entities.map((entity) => entity.id === source.id ? { ...source, handles } : entity)); setEntitiesState(next); onChange?.(next); setCursor(raw); return;
+      const next = synchronizeLinkedGeometry(entities.map((entity) => entity.id === source.id ? { ...source, handles } : entity)); setEntitiesState(next); onChange?.(next); setCursor(raw); return;
     }
     if (draggingDimension) {
       const raw = pointFromEvent(event);
@@ -409,7 +475,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
       let next = entities.map((entity) => entity.id === dragging.entityId ? moveControlPoint(entity, dragging.handle, nextPoint) : entity);
       const propagates = dragging.handle === "a" || dragging.handle === "b" || (dragging.handle.startsWith("point-") && (dragging.handle === "point-0" || dragging.handle === `point-${source.type === "spline" ? source.points.length - 1 : -1}`));
       if (propagates) next = next.map((entity) => entity.id === dragging.entityId ? entity : replaceConnectedPoint(entity, currentPoint, nextPoint));
-      next = synchronizeMirrors(next); setEntitiesState(next); onChange?.(next); const nextConstraints = constraintsForGeometry(next); setConstraintsState(nextConstraints); onConstraintsChange?.(nextConstraints); setCursor(nextPoint); setSnap(activeSnap); return;
+      next = synchronizeLinkedGeometry(next); setEntitiesState(next); onChange?.(next); const nextConstraints = constraintsForGeometry(next); setConstraintsState(nextConstraints); onConstraintsChange?.(nextConstraints); setCursor(nextPoint); setSnap(activeSnap); return;
     }
     const raw = pointFromEvent(event);
     if ((tool === "linear-dimension" || tool === "angular-dimension") && dimensionReferences.length === 2 || tool === "diameter-dimension" && diameterEntityId) { setCursor(raw); setSnap(null); return; }
@@ -423,6 +489,33 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     setSelected(entityId); setSelectedConstraintId(null); setSelectedDimensionKeys([]); setEditingConstraintId(null);
     setDragging({ entityId, handle, pointerId: event.pointerId, originalPoint });
     svgRef.current?.setPointerCapture(event.pointerId);
+  };
+
+  const runSketchCheck = () => {
+    if (tool === "sketch-check" && sketchCheck?.openEndpoints.length) {
+      const removeIds = new Set(sketchCheck.removalEntityIds);
+      if (!removeIds.size) {
+        setSketchCheckMessage("SketchCheck found branching open geometry that needs a manual trim");
+        return;
+      }
+      const nextEntities = entities.filter((entity) => !removeIds.has(entity.id));
+      const nextConstraints = constraints.filter((constraint) => !constraintReferencesEntity(constraint, removeIds));
+      commit(nextEntities); commitConstraints(nextConstraints);
+      setHiddenDimensionKeys((keys) => keys.filter((key) => ![...removeIds].some((entityId) => key === entityId || key.startsWith(`${entityId}:`))));
+      const nextOffsets = Object.fromEntries(Object.entries(dimensionOffsets).filter(([key]) => ![...removeIds].some((entityId) => key === entityId || key.startsWith(`${entityId}:`))));
+      setDimensionOffsets(nextOffsets); onDimensionOffsetsChange?.(nextOffsets);
+      clearSelection(); setSketchCheck(null); setTool("select");
+      setSketchCheckMessage(`SketchCheck removed ${removeIds.size} open ${removeIds.size === 1 ? "segment" : "segments"}`);
+      return;
+    }
+    resetTransientToolState(); clearSelection();
+    const result = analyzeSketchContours(entities);
+    setTool("sketch-check"); setSketchCheck(result);
+    setSketchCheckMessage(result.viable
+      ? "SketchCheck passed · closed profile geometry is ready for Extrude or Revolve"
+      : result.openEndpoints.length
+        ? `SketchCheck found ${result.openEndpoints.length} open ${result.openEndpoints.length === 1 ? "endpoint" : "endpoints"} · click SketchCheck again to repair`
+        : "SketchCheck found no closed profile geometry");
   };
   const beginSplineHandleDrag = (event: React.PointerEvent<SVGCircleElement>, entityId: string, pointIndex: number, side: "in" | "out") => {
     event.preventDefault(); event.stopPropagation(); dragStartRef.current = entities;
@@ -443,10 +536,25 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     setDraggingConstraint({ id: constraint.id, pointerId: event.pointerId, captureTarget: event.currentTarget }); event.currentTarget.setPointerCapture(event.pointerId);
   };
   const finishDrag = (event?: React.PointerEvent<SVGSVGElement>) => {
+    if (trimGesture) {
+      const cancelled = event?.type === "pointercancel";
+      if (!cancelled && trimGesture.hits.length) {
+        let next = trimGesture.originalEntities; const trimmedIds = new Set<string>();
+        trimGesture.hits.forEach((hit) => {
+          const target = next.find((entity) => entity.id === hit.entityId); if (!target) return;
+          const replacements = trimEntityAtPoint(target, hit.point, next);
+          next = next.flatMap((entity) => entity.id === target.id ? replacements : [entity]); trimmedIds.add(target.id);
+        });
+        commit(next); commitConstraints(constraints.filter((constraint) => !constraintReferencesEntity(constraint, trimmedIds)));
+        setTrimMessage(`Trim complete · ${trimmedIds.size} ${trimmedIds.size === 1 ? "segment" : "segments"} removed`);
+      } else setTrimMessage(cancelled ? "Trim gesture cancelled" : "Trim · click a segment or drag across several segments");
+      if (svgRef.current?.hasPointerCapture(trimGesture.pointerId)) svgRef.current.releasePointerCapture(trimGesture.pointerId);
+      setTrimGesture(null); setSnap(null); return;
+    }
     if (selectionMarquee) {
       const end = event ? pointFromEvent(event) : selectionMarquee.current; const box = normalizedSelectionBox(selectionMarquee.start, end);
       setSelectedEntityIds(entities.filter((entity) => entityInSelectionBox(entity, selectionMarquee.start, end)).map((entity) => entity.id));
-      setSelectedConstraintIds(constraints.filter((constraint) => constraint.type !== "mirror" && pointInSelectionBox(constraintLabelPoint(constraint), box)).map((constraint) => constraint.id));
+      setSelectedConstraintIds(constraints.filter(isDimensionConstraint).filter((constraint) => pointInSelectionBox(constraintLabelPoint(constraint), box)).map((constraint) => constraint.id));
       setSelectedDimensionKeys(visibleDimensions.filter((dimension) => pointInSelectionBox(dimensionPosition(dimension), box)).map((dimension) => dimension.key));
       if (svgRef.current?.hasPointerCapture(selectionMarquee.pointerId)) svgRef.current.releasePointerCapture(selectionMarquee.pointerId);
       setSelectionMarquee(null); setSnap(null); return;
@@ -505,8 +613,8 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     const relation: AxisRelation = Math.abs(entity.b.x - entity.a.x) >= Math.abs(entity.b.y - entity.a.y) ? "Horizontal" : "Vertical";
     setConstraintShortcut({ x: event.clientX, y: event.clientY, entityId: entity.id, relation });
   };
-  const remapSplineConstraints = (entityId: string, remapIndex: (index: number) => number | null) => constraints.flatMap((constraint) => {
-    if (constraint.type === "mirror") return [constraint];
+  const remapSplineConstraints = (entityId: string, remapIndex: (index: number) => number | null): SketchConstraint[] => constraints.flatMap<SketchConstraint>((constraint): SketchConstraint[] => {
+    if (constraint.type !== "linear") return [constraint];
     const remapReference = (reference: SketchReference): SketchReference | null => {
       if (reference.kind !== "node" || reference.entityId !== entityId || !reference.handle.startsWith("point-")) return reference;
       const nextIndex = remapIndex(Number(reference.handle.slice(6)));
@@ -549,10 +657,14 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     if (tool === "select") {
       const start = pointFromEvent(event); event.preventDefault(); clearSelection(); setSelectionMarquee({ start, current: start, pointerId: event.pointerId }); setSnap(null); event.currentTarget.setPointerCapture(event.pointerId); return;
     }
-    if (tool === "trim") return;
+    if (tool === "trim") { beginTrimGesture(event); return; }
     if (tool === "linear-dimension") { if (dimensionReferences.length === 2) placeLinearDimension(pointFromEvent(event)); return; }
     if (tool === "angular-dimension") { if (dimensionReferences.length === 2) placeAngularDimension(pointFromEvent(event)); return; }
     if (tool === "diameter-dimension") { if (diameterEntityId) commitDiameterDimension(diameterEntityId, pointFromEvent(event)); return; }
+    if (isPatternTool(tool)) {
+      if (patternDraft?.kind === "circular-pattern" && patternDraft.stage === "center") { const raw = pointFromEvent(event); choosePatternCenter(centerReferenceAt(findSnap(raw)?.point ?? raw)); }
+      return;
+    }
     const point = findSnap(pointFromEvent(event), draft.at(-1))?.point ?? pointFromEvent(event);
     if (tool === "line" || tool === "centerline") {
       if (!draft.length) { setDraft([point]); return; }
@@ -590,12 +702,13 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
   };
 
   const constraintsForGeometry = (nextEntities: SketchEntity[], drivingId?: string, drivingValue?: number) => constraints.map((constraint) => {
-    if (constraint.type === "mirror") return constraint;
+    if (constraint.type === "mirror" || isPatternConstraint(constraint)) return constraint;
     if (constraint.id === drivingId) return { ...constraint, value: drivingValue ?? constraint.value, conflicted: false };
     const actual = constraint.type === "linear" ? linearDimensionValue(constraint.first, constraint.second, constraint.orientation, nextEntities) : constraint.type === "angular" ? angularDimensionValue(constraint.first, constraint.second, constraint.position, nextEntities) : diameterDimensionValue(constraint.entityId, nextEntities);
     return { ...constraint, conflicted: Math.abs(actual - constraint.value) > (constraint.type === "angular" ? 0.1 : 0.01) };
   });
   const moveConstraintReference = (sourceEntities: SketchEntity[], reference: SketchReference, target: Point): SketchEntity[] => {
+    if (reference.kind === "external-point" || reference.kind === "external-line") return sourceEntities;
     const source = sourceEntities.find((entity) => entity.id === reference.entityId);
     if (!source) return sourceEntities;
     if (reference.kind === "line" && source.type === "line") {
@@ -614,10 +727,11 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
   };
   const applyConstraintDimension = () => {
     const constraint = constraints.find((candidate) => candidate.id === editingConstraintId); const enteredValue = Number(dimensionValue);
-    if (!constraint || constraint.type === "mirror" || !(enteredValue > 0)) { setEditingConstraintId(null); return; }
+    if (!constraint || constraint.type === "mirror" || isPatternConstraint(constraint) || !Number.isFinite(enteredValue)) { setEditingConstraintId(null); return; }
     if (constraint.type === "diameter") {
+      if (!(enteredValue > 0)) { setEditingConstraintId(null); return; }
       const value = toMillimeters(enteredValue, unitSystem);
-      const nextEntities = synchronizeMirrors(entities.map((entity) => entity.id === constraint.entityId && entity.type === "circle" ? { ...entity, r: value / 2 } : entity));
+      const nextEntities = synchronizeLinkedGeometry(entities.map((entity) => entity.id === constraint.entityId && entity.type === "circle" ? { ...entity, r: value / 2 } : entity));
       const nextConstraints = constraintsForGeometry(nextEntities, constraint.id, value);
       setEntitiesState(nextEntities); onChange?.(nextEntities); commitConstraints(nextConstraints); setEditingConstraintId(null); return;
     }
@@ -626,17 +740,18 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
       const firstLine = lineFor(constraint.first, entities); const secondLine = lineFor(constraint.second, entities);
       const target = firstLine && secondLine ? targetPointForAngularValue(firstLine, secondLine, constraint.position, enteredValue) : null;
       if (!target) { setEditingConstraintId(null); return; }
-      const nextEntities = synchronizeMirrors(moveConstraintReference(entities, { kind: "node", entityId: constraint.second.entityId, handle: target.movingHandle }, target.target));
+      const nextEntities = synchronizeLinkedGeometry(moveConstraintReference(entities, { kind: "node", entityId: constraint.second.entityId, handle: target.movingHandle }, target.target));
       const nextConstraints = constraintsForGeometry(nextEntities, constraint.id, enteredValue);
       setEntitiesState(nextEntities); onChange?.(nextEntities); commitConstraints(nextConstraints); setEditingConstraintId(null); return;
     }
+    if (enteredValue < 0) { setEditingConstraintId(null); return; }
     const value = toMillimeters(enteredValue, unitSystem);
     const [firstPoint, secondPoint] = dimensionReferencePoints(constraint.first, constraint.second, entities);
     const secondFixed = constraint.second.kind === "external-point" || constraint.second.kind === "external-line";
     const firstFixed = constraint.first.kind === "external-point" || constraint.first.kind === "external-line";
     if (firstFixed && secondFixed) { setEditingConstraintId(null); return; }
     const target = secondFixed ? targetPointForLinearValue(secondPoint, firstPoint, constraint.orientation, value) : targetPointForLinearValue(firstPoint, secondPoint, constraint.orientation, value);
-    const nextEntities = synchronizeMirrors(moveConstraintReference(entities, secondFixed ? constraint.first : constraint.second, target));
+    const nextEntities = synchronizeLinkedGeometry(moveConstraintReference(entities, secondFixed ? constraint.first : constraint.second, target));
     const nextConstraints = constraintsForGeometry(nextEntities, constraint.id, value);
     setEntitiesState(nextEntities); onChange?.(nextEntities); commitConstraints(nextConstraints); setEditingConstraintId(null);
   };
@@ -680,7 +795,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     const userOffset = dimensionOffsets[dimension.key] ?? { x: 0, y: 0 };
     return { x: dimension.anchor.x + (dimension.offset.x + userOffset.x) * dimensionScale, y: dimension.anchor.y + (dimension.offset.y + userOffset.y) * dimensionScale };
   };
-  const constraintLabelPoint = (constraint: Exclude<SketchConstraint, MirrorConstraint>) => constraint.type === "linear" ? linearDimensionLayout(constraint.first, constraint.second, constraint.orientation, constraint.position, entities).label : constraint.type === "angular" ? angularDimensionLayout(constraint.first, constraint.second, constraint.position, entities).label : diameterDimensionLayout(constraint.entityId, constraint.position, entities).label;
+  const constraintLabelPoint = (constraint: Exclude<SketchConstraint, MirrorConstraint | PatternConstraint>) => constraint.type === "linear" ? linearDimensionLayout(constraint.first, constraint.second, constraint.orientation, constraint.position, entities).label : constraint.type === "angular" ? angularDimensionLayout(constraint.first, constraint.second, constraint.position, entities).label : diameterDimensionLayout(constraint.entityId, constraint.position, entities).label;
   const createLineLengthDimension = (entity: Extract<SketchEntity, { type: "line" }>) => {
     const existing = constraints.find((constraint) => constraint.type === "linear" && constraintSupersedesSegmentDimension(constraint, entity));
     setDraft([]); setDimensionReferences([]); setDimensionMessage(null); setSnap(null); setEditingConstraintId(null); setEditingDimension(null); setSelected(null); setSelectedDimensionKeys([]);
@@ -698,12 +813,12 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
   const selectionCount = selectedEntityIds.length + selectedConstraintIds.length + selectedDimensionKeys.length;
   const marqueeBox = selectionMarquee ? normalizedSelectionBox(selectionMarquee.start, selectionMarquee.current) : null;
   const editingDimensionPosition = editingDimension ? dimensionPosition(editingDimension) : null;
-  const editingConstraint = constraints.find((constraint): constraint is Exclude<SketchConstraint, MirrorConstraint> => constraint.id === editingConstraintId && constraint.type !== "mirror") ?? null;
+  const editingConstraint = constraints.find((constraint): constraint is Exclude<SketchConstraint, MirrorConstraint | PatternConstraint> => constraint.id === editingConstraintId && isDimensionConstraint(constraint)) ?? null;
   const editingConstraintPosition = editingConstraint ? constraintLabelPoint(editingConstraint) : null;
   const linearPreview = tool === "linear-dimension" && dimensionReferences.length === 2 ? linearDimensionLayout(dimensionReferences[0], dimensionReferences[1], dimensionOrientation, cursor, entities) : null;
   const angularPreview = tool === "angular-dimension" && dimensionReferences.length === 2 && (dimensionReferences[0].kind === "line" || dimensionReferences[0].kind === "external-line") && (dimensionReferences[1].kind === "line" || dimensionReferences[1].kind === "external-line") ? angularDimensionLayout(dimensionReferences[0], dimensionReferences[1], cursor, entities) : null;
   const diameterPreview = tool === "diameter-dimension" && diameterEntityId ? diameterDimensionLayout(diameterEntityId, cursor, entities) : null;
-  const hasConstraintConflict = constraints.some((constraint) => constraint.conflicted);
+  const hasConstraintConflict = constraints.some((constraint) => "conflicted" in constraint && constraint.conflicted);
   const viewWidth = VIEW.width / safeZoom; const viewHeight = VIEW.height / safeZoom;
   const viewX = view.center.x - viewWidth / 2; const viewY = view.center.y - viewHeight / 2;
   const highlightStyle = { "--sketch-highlight-width": `${highlightWidthPx}px` } as CSSProperties;
@@ -721,12 +836,116 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     event.stopPropagation(); const position = pointFromEvent(event); const target = axisOrLineAt(axis, position);
     chooseDimensionReference(target.kind === "line" ? { kind: "line", entityId: target.entityId } : axisReference(axis), position);
   };
+  const choosePatternAxisOrLine = (axis: "x" | "y", event: React.PointerEvent<SVGRectElement>) => {
+    event.preventDefault(); event.stopPropagation(); const target = axisOrLineAt(axis, pointFromEvent(event));
+    if (target.kind === "line") { const line = entities.find((entity): entity is Extract<SketchEntity, { type: "line" }> => entity.id === target.entityId && entity.type === "line"); if (line) choosePatternDirection(directionReferenceForLine(line)); }
+    else choosePatternDirection({ kind: "external", referenceId: `sketch-axis:${axis}`, fallback: axis === "x" ? { x: 1, y: 0 } : { x: 0, y: 1 } });
+  };
+  const isPatternTool = (candidate: Tool): candidate is PatternTool => candidate === "linear-pattern" || candidate === "rectangular-pattern" || candidate === "circular-pattern";
+  const defaultPatternDraft = (kind: PatternTool, seedIds: string[]): PatternDraft => ({
+    kind, stage: seedIds.length ? kind === "circular-pattern" ? "center" : "direction-1" : "entities", seedIds,
+    count1: 3, spacing1: Math.max(gridSquareSize * 2, 1), flip1: false, count2: 3, spacing2: Math.max(gridSquareSize * 2, 1), flip2: false,
+    circularCount: 6, span: 360, radius: Math.max(gridSquareSize * 2, 1), arcAngle: 0, equalSpacing: true, reverse: false, rotateInstances: true, skipped: [],
+  });
+  const selectedSketchEntityIds = () => {
+    const available = new Set(entities.map((entity) => entity.id));
+    return selectedEntityIds.filter((id) => available.has(id));
+  };
+  const startPattern = (kind: PatternTool) => {
+    resetTransientToolState(); setTool(kind); const next = defaultPatternDraft(kind, selectedSketchEntityIds()); setPatternDraft(next);
+    setPatternMessage(next.stage === "entities" ? `${kind === "circular-pattern" ? "Circular" : kind === "rectangular-pattern" ? "Rectangular" : "Linear"} pattern · select seed geometry · Shift-click to add, then click the reference` : kind === "circular-pattern" ? "Select the pattern center" : "Select a straight line or background edge for Direction 1");
+  };
+  const startMirror = () => {
+    resetTransientToolState(); setTool("mirror"); const seedIds = selectedSketchEntityIds(); setSelectedEntityIds(seedIds); setMirrorStage(seedIds.length ? "axis" : "entities");
+    setMirrorMessage(seedIds.length ? "Click a separate straight sketch line to set the mirror axis" : "Select geometry to mirror · Shift-click to add more");
+  };
+  const directionReferenceForLine = (line: Extract<SketchEntity, { type: "line" }>): PatternDirectionReference => ({ kind: "entity", entityId: line.id, fallback: { x: line.b.x - line.a.x, y: line.b.y - line.a.y } });
+  const directionReferenceForExternal = (reference: ExternalSketchReference): PatternDirectionReference | null => reference.points.length > 1 ? { kind: "external", referenceId: reference.id, fallback: { x: reference.points.at(-1)!.x - reference.points[0].x, y: reference.points.at(-1)!.y - reference.points[0].y } } : null;
+  const choosePatternDirection = (reference: PatternDirectionReference) => {
+    if (!patternDraft) return;
+    if (patternDraft.stage === "direction-1") {
+      if (patternDraft.kind === "rectangular-pattern") { setPatternDraft({ ...patternDraft, direction1: reference, stage: "direction-2" }); setPatternMessage("Select a second, non-parallel direction"); }
+      else { setPatternDraft({ ...patternDraft, direction1: reference, stage: "parameters" }); setPatternMessage("Set spacing and instances, then apply the pattern"); }
+      return;
+    }
+    if (patternDraft.stage === "direction-2") {
+      const first = patternDraft.direction1 ? resolvePatternDirection(patternDraft.direction1, entities, externalReferences) : { x: 1, y: 0 }; const second = resolvePatternDirection(reference, entities, externalReferences);
+      if (Math.abs(first.x * second.y - first.y * second.x) < 0.001) { setPatternMessage("Direction 2 must not be parallel to Direction 1"); return; }
+      setPatternDraft({ ...patternDraft, direction2: reference, stage: "parameters" }); setPatternMessage("Set both direction spacings and instance counts, then apply");
+    }
+  };
+  const centerReferenceAt = (position: Point, entity?: SketchEntity): PatternCenterReference => {
+    if (distance(position, { x: 0, y: 0 }) <= 10 / safeZoom) return { kind: "origin" };
+    if (entity) {
+      const nearest = controlPointsForEntity(entity).reduce<{ handle: string; point: Point } | null>((best, control) => !best || distance(position, control.point) < distance(position, best.point) ? control : best, null);
+      if (nearest && distance(position, nearest.point) <= 12 / safeZoom) return { kind: "entity-node", entityId: entity.id, handle: nearest.handle, fallback: nearest.point };
+    }
+    return { kind: "fixed", point: position };
+  };
+  const choosePatternCenter = (center: PatternCenterReference) => {
+    if (!patternDraft || patternDraft.kind !== "circular-pattern") return;
+    const resolved = resolvePatternCenter(center, entities, externalReferences); const seeds = entities.filter((entity) => patternDraft.seedIds.includes(entity.id));
+    const seedCenter = seeds.length ? seeds.map(entityBadgePoint).reduce((sum, point) => ({ x: sum.x + point.x / seeds.length, y: sum.y + point.y / seeds.length }), { x: 0, y: 0 }) : { x: resolved.x + patternDraft.radius, y: resolved.y };
+    setPatternDraft({ ...patternDraft, center, radius: Math.max(0.001, distance(seedCenter, resolved)), arcAngle: Math.atan2(seedCenter.y - resolved.y, seedCenter.x - resolved.x) * 180 / Math.PI, stage: "parameters" }); setPatternMessage("Set the angular span and instance options, then apply");
+  };
+  const updatePatternDraft = (changes: Partial<PatternDraft>) => setPatternDraft((current) => current ? { ...current, ...changes } : current);
+  const parseSkippedInstances = (value: string) => [...new Set(value.split(/[,\s]+/).map(Number).filter((item) => Number.isInteger(item) && item > 1).map((item) => item - 1))];
+  const positionedCircularSeeds = (draftState: PatternDraft) => {
+    const seeds = entities.filter((entity) => draftState.seedIds.includes(entity.id)); if (!draftState.center || !seeds.length) return seeds;
+    const center = resolvePatternCenter(draftState.center, entities, externalReferences); const current = seeds.map(entityBadgePoint).reduce((sum, point) => ({ x: sum.x + point.x / seeds.length, y: sum.y + point.y / seeds.length }), { x: 0, y: 0 }); const angle = draftState.arcAngle * Math.PI / 180;
+    const target = { x: center.x + Math.cos(angle) * Math.max(0.001, draftState.radius), y: center.y + Math.sin(angle) * Math.max(0.001, draftState.radius) }; const delta = { x: target.x - current.x, y: target.y - current.y };
+    return seeds.map((seed) => translateSketchEntity(seed, delta));
+  };
+  const patternPreviewEntities = useMemo(() => {
+    if (!patternDraft || patternDraft.stage !== "parameters") return [];
+    const seeds = patternDraft.kind === "circular-pattern" ? positionedCircularSeeds(patternDraft) : entities.filter((entity) => patternDraft.seedIds.includes(entity.id)); if (!seeds.length) return [];
+    if (patternDraft.kind === "circular-pattern" && patternDraft.center) {
+      const center = resolvePatternCenter(patternDraft.center, entities, externalReferences); const count = Math.max(2, Math.min(100, Math.round(patternDraft.circularCount))); const step = (patternDraft.equalSpacing ? circularPatternStep(count, patternDraft.span) : patternDraft.span) * (patternDraft.reverse ? -1 : 1);
+      return seeds.flatMap((seed) => Array.from({ length: count - 1 }, (_, offset) => offset + 1).filter((index) => !patternDraft.skipped.includes(index)).map((index) => circularPatternSketchEntity(seed, center, step * index, patternDraft.rotateInstances, `preview-${seed.id}-${index}`)));
+    }
+    if (!patternDraft.direction1) return [];
+    const first = resolvePatternDirection(patternDraft.direction1, entities, externalReferences); const direction1 = { x: first.x * (patternDraft.flip1 ? -1 : 1), y: first.y * (patternDraft.flip1 ? -1 : 1) };
+    const secondRaw = patternDraft.direction2 ? resolvePatternDirection(patternDraft.direction2, entities, externalReferences) : { x: -direction1.y, y: direction1.x }; const direction2 = { x: secondRaw.x * (patternDraft.flip2 ? -1 : 1), y: secondRaw.y * (patternDraft.flip2 ? -1 : 1) };
+    const columns = Math.max(2, Math.min(100, Math.round(patternDraft.count1))); const rows = patternDraft.kind === "rectangular-pattern" ? Math.max(2, Math.min(100, Math.round(patternDraft.count2))) : 1;
+    return seeds.flatMap((seed) => Array.from({ length: rows }, (_, row) => Array.from({ length: columns }, (_, column) => ({ column, row }))).flat().filter(({ column, row }) => (column || row) && !patternDraft.skipped.includes(row * columns + column)).map(({ column, row }) => linearPatternSketchEntity(seed, direction1, patternDraft.spacing1, column, direction2, patternDraft.spacing2, row, `preview-${seed.id}-${column}-${row}`)));
+  }, [entities, externalReferences, patternDraft]);
+  const applyPattern = () => {
+    if (!patternDraft || patternDraft.stage !== "parameters") return;
+    let seeds = entities.filter((entity) => patternDraft.seedIds.includes(entity.id)); if (!seeds.length) { setPatternMessage("Select at least one seed entity"); return; }
+    if (patternDraft.kind === "circular-pattern") {
+      if (!patternDraft.center) return; seeds = positionedCircularSeeds(patternDraft);
+      const center = resolvePatternCenter(patternDraft.center, entities, externalReferences); const count = Math.max(2, Math.min(100, Math.round(patternDraft.circularCount))); const span = Math.max(0.1, Math.min(360, Math.abs(patternDraft.span))); const step = (patternDraft.equalSpacing ? circularPatternStep(count, span) : span) * (patternDraft.reverse ? -1 : 1); const copies: SketchEntity[] = [];
+      const pairs = seeds.map((seed) => ({ sourceId: seed.id, instances: Array.from({ length: count - 1 }, (_, offset) => offset + 1).filter((index) => !patternDraft.skipped.includes(index)).map((index) => { const entityId = nextId(); copies.push(circularPatternSketchEntity(seed, center, step * index, patternDraft.rotateInstances, entityId)); return { entityId, index }; }) }));
+      const constraint: CircularPatternConstraint = { id: `constraint-${crypto.randomUUID()}`, type: "circular-pattern", center: patternDraft.center, count, span, equalSpacing: patternDraft.equalSpacing, reverse: patternDraft.reverse, rotateInstances: patternDraft.rotateInstances, skipped: patternDraft.skipped, pairs };
+      const positionedById = new Map(seeds.map((seed) => [seed.id, seed])); commit([...entities.map((entity) => positionedById.get(entity.id) ?? entity), ...copies]); commitConstraints([...constraints, constraint]); setSelectedEntityIds(copies.map((copy) => copy.id)); setPatternDraft(null); setPatternMessage(null); setTool("select"); return;
+    }
+    if (!patternDraft.direction1) return;
+    const first = resolvePatternDirection(patternDraft.direction1, entities, externalReferences); const direction1 = { x: first.x * (patternDraft.flip1 ? -1 : 1), y: first.y * (patternDraft.flip1 ? -1 : 1) };
+    const secondRaw = patternDraft.direction2 ? resolvePatternDirection(patternDraft.direction2, entities, externalReferences) : { x: -direction1.y, y: direction1.x }; const direction2 = { x: secondRaw.x * (patternDraft.flip2 ? -1 : 1), y: secondRaw.y * (patternDraft.flip2 ? -1 : 1) };
+    const count1 = Math.max(2, Math.min(100, Math.round(patternDraft.count1))); const count2 = patternDraft.kind === "rectangular-pattern" ? Math.max(2, Math.min(100, Math.round(patternDraft.count2))) : 1; const copies: SketchEntity[] = [];
+    const pairs = seeds.map((seed) => ({ sourceId: seed.id, instances: Array.from({ length: count2 }, (_, row) => Array.from({ length: count1 }, (_, column) => ({ column, row }))).flat().filter(({ column, row }) => (column || row) && !patternDraft.skipped.includes(row * count1 + column)).map(({ column, row }) => { const entityId = nextId(); copies.push(linearPatternSketchEntity(seed, direction1, patternDraft.spacing1, column, direction2, patternDraft.spacing2, row, entityId)); return { entityId, column, row }; }) }));
+    const skipped = patternDraft.skipped.map((index) => ({ column: index % count1, row: Math.floor(index / count1) }));
+    const common = { id: `constraint-${crypto.randomUUID()}`, direction1: patternDraft.direction1, spacing1: Math.max(0.01, patternDraft.spacing1), count1, flip1: patternDraft.flip1, spacing2: Math.max(0.01, patternDraft.spacing2), count2, flip2: patternDraft.flip2, skipped, pairs };
+    const constraint: LinearPatternConstraint = patternDraft.kind === "rectangular-pattern" ? { ...common, type: "rectangular-pattern", direction2: patternDraft.direction2! } : { ...common, type: "linear-pattern", direction2: patternDraft.direction2 };
+    commit([...entities, ...copies]); commitConstraints([...constraints, constraint]); setSelectedEntityIds(copies.map((copy) => copy.id)); setPatternDraft(null); setPatternMessage(null); setTool("select");
+  };
   const handleEntityPointerDown = (event: React.PointerEvent<SVGGElement>, entity: SketchEntity) => {
+    if (isPatternTool(tool) && patternDraft) {
+      event.preventDefault(); event.stopPropagation(); const position = pointFromEvent(event);
+      if (patternDraft.stage === "entities" || event.shiftKey && (patternDraft.stage === "direction-1" || patternDraft.stage === "center")) {
+        const seedIds = patternDraft.seedIds.includes(entity.id) ? patternDraft.seedIds.filter((id) => id !== entity.id) : [...patternDraft.seedIds, entity.id]; const nextStage = seedIds.length ? patternDraft.kind === "circular-pattern" ? "center" : "direction-1" : "entities";
+        setPatternDraft({ ...patternDraft, seedIds, stage: nextStage }); setSelectedEntityIds(seedIds); setPatternMessage(seedIds.length ? patternDraft.kind === "circular-pattern" ? "Select the pattern center · Shift-click to adjust seeds" : "Select a straight direction reference · Shift-click to adjust seeds" : "Select seed geometry"); return;
+      }
+      if (patternDraft.kind === "circular-pattern" && patternDraft.stage === "center") { choosePatternCenter(centerReferenceAt(position, entity)); return; }
+      if ((patternDraft.stage === "direction-1" || patternDraft.stage === "direction-2") && entity.type === "line" && !patternDraft.seedIds.includes(entity.id)) { choosePatternDirection(directionReferenceForLine(entity)); return; }
+      setPatternMessage(patternDraft.stage.startsWith("direction") ? "Select a straight line that is not part of the seed geometry" : "Select the pattern reference"); return;
+    }
     if (tool === "mirror") {
       event.preventDefault(); event.stopPropagation();
-      if (!selectedEntityIds.length || event.shiftKey) {
-        setSelectedEntityIds((ids) => ids.includes(entity.id) ? ids.filter((id) => id !== entity.id) : [...ids, entity.id]);
-        setMirrorMessage("Geometry selected · click a straight line to set the mirror axis · Shift-click to add or remove geometry");
+      if (mirrorStage === "entities" || event.shiftKey) {
+        const seedIds = selectedEntityIds.includes(entity.id) ? selectedEntityIds.filter((id) => id !== entity.id) : [...selectedEntityIds, entity.id];
+        setSelectedEntityIds(seedIds); setMirrorStage(seedIds.length ? "axis" : "entities");
+        setMirrorMessage(seedIds.length ? "Geometry selected · click a separate straight sketch line · Shift-click to adjust the selection" : "Select geometry to mirror");
         return;
       }
       if (entity.type !== "line") { setMirrorMessage("Mirror needs a straight sketch line as its axis"); return; }
@@ -751,14 +970,14 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     }
     if (tool === "corner") {
       event.preventDefault(); event.stopPropagation(); const click = pointFromEvent(event);
-      if (entity.type !== "line") { setCornerMessage("Corner only works with line segments"); return; }
+      if (entity.type !== "line" && entity.type !== "spline") { setCornerMessage("Corner supports line segments and open splines"); return; }
       if (!cornerSource) {
-        setCornerSource({ entityId: entity.id, click }); setCornerMessage("Select the second non-parallel line segment"); clearSelection(); setSelected(entity.id); return;
+        setCornerSource({ entityId: entity.id, click }); setCornerMessage("Select a line segment or spline to form the corner"); clearSelection(); setSelected(entity.id); return;
       }
       if (cornerSource.entityId === entity.id) return;
-      const source = entities.find((candidate): candidate is Extract<SketchEntity, { type: "line" }> => candidate.id === cornerSource.entityId && candidate.type === "line");
-      const result = source ? cornerLines(source, cornerSource.click, entity, click) : null;
-      if (!result) { setCornerMessage("Corner needs two non-parallel line segments"); return; }
+      const source = entities.find((candidate) => candidate.id === cornerSource.entityId);
+      const result = source ? cornerEntities(source, cornerSource.click, entity, click) : null;
+      if (!result) { setCornerMessage("Corner needs two non-parallel lines, or one line paired with an open spline"); return; }
       const [first, second] = result;
       const next = entities.map((item) => item.id === first.id ? first : item.id === second.id ? second : item);
       commit(next); commitConstraints(constraintsForGeometry(next)); setCornerSource(null); setCornerMessage("Corner created"); setSelected(second.id); return;
@@ -786,7 +1005,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     }
     if (tool !== "select" && tool !== "trim") return;
     event.stopPropagation();
-    if (tool === "trim") { const replacements = trimEntityAtPoint(entity, pointFromEvent(event), entities); commit(entities.flatMap((item) => item.id === entity.id ? replacements : [item])); setSelected(null); return; }
+    if (tool === "trim") { beginTrimGesture(event, entity.id); return; }
     if (event.shiftKey) {
       event.preventDefault();
       setSelectedEntityIds((ids) => ids.includes(entity.id) ? ids.filter((id) => id !== entity.id) : [...ids, entity.id]);
@@ -796,7 +1015,7 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
     setSelected(entity.id); setSelectedAxisConstraint(null); setSelectedConstraintId(null); setSelectedDimensionKeys([]); setTool("select");
   };
   const resetTransientToolState = () => {
-    setDraft([]); setExtendSource(null); setExtendMessage(null); setCornerSource(null); setCornerMessage(null); setPerpendicularSource(null); setPerpendicularMessage(null); setMirrorMessage(null); setDimensionReferences([]); setDiameterEntityId(null); setDimensionMessage(null);
+    setDraft([]); setExtendSource(null); setExtendMessage(null); setCornerSource(null); setCornerMessage(null); setPerpendicularSource(null); setPerpendicularMessage(null); setMirrorMessage(null); setMirrorStage("entities"); setPatternDraft(null); setPatternSkippedInput(null); setPatternMessage(null); setTrimGesture(null); setTrimMessage(null); setSketchCheck(null); setSketchCheckMessage(null); setDimensionReferences([]); setDiameterEntityId(null); setDimensionMessage(null);
   };
   const chooseTool = (nextTool: Tool, options: { clear?: boolean; selected?: string | null } = {}) => {
     setTool(nextTool); resetTransientToolState();
@@ -816,7 +1035,8 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
         <SketchCommandButton disabled={!future.length} icon="↷" label="Redo" title="Redo sketch edit" onClick={redo} />
         <SketchCommandButton className={showGrid ? "toggle-on" : ""} disabled={false} icon="▦" label="Grid" title={`${showGrid ? "Hide" : "Show"} sketch grid`} onClick={() => setShowGrid(!showGrid)} pressed={showGrid} />
         <SketchCommandButton className={snapEnabled ? "toggle-on" : ""} disabled={false} icon="◇" label="Snap" title={snapEnabled ? "Snapping enabled: nodes move between geometry and grid snap points" : "Snapping disabled: nodes move freely"} onClick={() => { setSnapEnabled(!snapEnabled); setSnap(null); }} pressed={snapEnabled} />
-        <SketchCommandButton active={viewRotated} disabled={false} icon="⟂" label="Normal" title="Snap normal: align the view to the sketch plane" onClick={onSnapNormal} />
+        <SketchCommandButton active={viewRotated} disabled={false} icon="⟂" label="Normal" title="Snap normal: align the view to the sketch plane" onClick={() => onSnapNormal?.()} />
+        <SketchCommandButton active={tool === "sketch-check"} className="sketch-check-tool" disabled={false} icon={<span className="sketch-check-icon">⌁</span>} label="SketchCheck" title="SketchCheck: first click highlights open endpoints; second click trims dangling geometry or deletes isolated open segments" onClick={runSketchCheck} />
         <SketchCommandButton className="finish-sketch" disabled={false} icon="✓" label="Finish" title="Finish sketch" onClick={onFinish} /></div>
       </div>
       <div className="sketch-command-group geometry-group" aria-label="Sketch geometry tools"><b>Geometry</b><div className="sketch-command-tools">
@@ -831,11 +1051,14 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
       <div className="sketch-command-group modify-group" aria-label="Sketch modification tools"><b>Modify</b><div className="sketch-command-tools">
         <SketchCommandButton active={tool === "trim"} icon="✂" label="Trim" title="Trim a sketch segment at its nearest intersections" onClick={() => chooseTool("trim")} />
         <SketchCommandButton active={tool === "extend"} icon="↗" label="Extend" title="Select a line, arc, or circle, then select the geometry it should meet" onClick={() => chooseTool("extend", { clear: true })} />
-        <SketchCommandButton active={tool === "corner"} icon="⌜" label="Corner" title="Select two non-parallel line segments to trim or extend them into a corner" onClick={() => chooseTool("corner", { clear: true })} />
+        <SketchCommandButton active={tool === "corner"} icon="⌜" label="Corner" title="Select two lines, or a line and spline, to trim or extend them into a corner" onClick={() => chooseTool("corner", { clear: true })} />
         {activeEntity?.type === "spline" && <SketchCommandButton icon="≈" label="Relax" title="Relax spline: reset tangent handles to a relaxed automatic curve" onClick={() => commit(entities.map((entity) => entity.id === activeEntity.id ? { ...activeEntity, handles: undefined } : entity))} />}</div>
       </div>
       <div className="sketch-command-group pattern-group" aria-label="Sketch pattern tools"><b>Patterns</b><div className="sketch-command-tools">
-        <SketchCommandButton active={tool === "mirror"} icon={<span className="mirror-pattern-icon"><i/><i/></span>} label="Mirror" title="Mirror selected sketch geometry about a straight line and keep both sides linked" onClick={() => { chooseTool("mirror"); setMirrorMessage(selectedEntityIds.length ? "Click a straight line to set the mirror axis" : "Select geometry first · click an element, Shift-click to add more, then click the mirror line"); }} />
+        <SketchCommandButton active={tool === "mirror"} icon={<span className="mirror-pattern-icon"><i/><i/></span>} label="Mirror" title="Mirror selected sketch geometry about a straight line and keep both sides linked" onClick={startMirror} />
+        <SketchCommandButton active={tool === "linear-pattern"} icon={<span className="linear-pattern-icon">•••</span>} label="Linear" title="Linear sketch pattern: select seed geometry, a direction, spacing, and instance count" onClick={() => startPattern("linear-pattern")} />
+        <SketchCommandButton active={tool === "rectangular-pattern"} icon={<span className="rectangular-pattern-icon">⠿</span>} label="Rect" title="Rectangular sketch pattern: repeat selected geometry along two referenced directions" onClick={() => startPattern("rectangular-pattern")} />
+        <SketchCommandButton active={tool === "circular-pattern"} icon={<span className="circular-pattern-icon">◌</span>} label="Circular" title="Circular sketch pattern: select seed geometry, a center, angular span, and instance count" onClick={() => startPattern("circular-pattern")} />
       </div></div>
       <div className="sketch-command-group constraint-group" aria-label="Sketch constraint tools"><b>Constraints</b><div className="sketch-command-tools">
         <SketchCommandButton active={tool === "linear-dimension"} className="constraint-tool" icon={<span className="linear-dimension-icon">↔</span>} label="Linear" title="Linear dimension constraint: select two nodes or lines, press Tab to change orientation, then click to place" onClick={() => chooseTool("linear-dimension", { selected: null })} />
@@ -846,17 +1069,33 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
         <SketchCommandButton active={tool === "vertical-constraint"} className="constraint-tool axis-constraint-tool" icon={<span className="axis-constraint-icon vertical" />} label="Vert" title="Lock a line vertical" onClick={() => chooseTool("vertical-constraint", { clear: true })} /></div>
       </div>
     </div>
-    <svg ref={svgRef} className={`sketch-canvas tool-${tool} ${dragging ? "dragging-point" : ""} ${draggingDimension ? "dragging-dimension" : ""} ${selectionMarquee ? "marquee-selecting" : ""} ${draggingSelection ? "dragging-selection" : ""}`} viewBox={`${viewX} ${viewY} ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid slice" onPointerMove={onMove} onPointerUp={finishDrag} onPointerCancel={finishDrag} onPointerDown={onCanvasPointerDown} onDoubleClick={() => tool === "spline" && finishSpline()} onContextMenu={(event) => event.preventDefault()}>
+    {tool === "mirror" && <aside className="sketch-pattern-manager sketch-mirror-manager" aria-label="Mirror pattern options">
+      <header><div><small>SKETCH PATTERN</small><strong>Mirror</strong></div><button type="button" aria-label="Cancel mirror" title="Cancel" onClick={() => chooseTool("select")}>×</button></header>
+      <div className={`pattern-manager-section ${mirrorStage === "entities" ? "active-step" : ""}`}><b>1 · Entities to Mirror</b><div className="pattern-reference-row"><span>{selectedEntityIds.length ? `${selectedEntityIds.length} selected` : "Select in sketch"}</span><button type="button" onClick={() => { setSelectedEntityIds([]); setMirrorStage("entities"); setMirrorMessage("Select geometry to mirror · Shift-click to add more"); }}>Reselect</button></div></div>
+      <div className={`pattern-manager-section ${mirrorStage === "axis" ? "active-step" : ""}`}><b>2 · Mirror Line</b><div className="pattern-reference-row"><span>{mirrorStage === "axis" ? "Select a straight sketch line" : "Waiting for geometry"}</span></div><small>The mirrored geometry stays linked to its source through the mirror constraint.</small></div>
+      <footer><button type="button" className="cancel" onClick={() => chooseTool("select")}>Cancel</button></footer>
+    </aside>}
+    {patternDraft && <aside className="sketch-pattern-manager" aria-label={`${patternDraft.kind.replace("-pattern", "")} pattern options`}>
+      <header><div><small>SKETCH PATTERN</small><strong>{patternDraft.kind === "linear-pattern" ? "Linear Pattern" : patternDraft.kind === "rectangular-pattern" ? "Rectangular Pattern" : "Circular Pattern"}</strong></div><button type="button" aria-label="Cancel pattern" title="Cancel" onClick={() => chooseTool("select")}>×</button></header>
+      <div className={`pattern-manager-section ${patternDraft.stage === "entities" ? "active-step" : ""}`}><b>1 · Entities to Pattern</b><div className="pattern-reference-row"><span>{patternDraft.seedIds.length ? `${patternDraft.seedIds.length} selected` : "Select in sketch"}</span><button type="button" onClick={() => { setSelectedEntityIds([]); updatePatternDraft({ seedIds: [], stage: "entities" }); setPatternMessage("Select seed geometry · Shift-click to add, then click the reference"); }}>Reselect</button></div></div>
+      {patternDraft.kind !== "circular-pattern" ? <>
+        <div className={`pattern-manager-section ${patternDraft.stage === "direction-1" ? "active-step" : ""}`}><b>2 · Direction 1</b><div className="pattern-reference-row"><span>{patternDraft.direction1 ? patternDraft.direction1.kind === "entity" ? "Sketch line" : "Reference edge / axis" : patternDraft.seedIds.length ? "Select in sketch" : "Waiting for geometry"}</span><button type="button" disabled={!patternDraft.seedIds.length} onClick={() => { updatePatternDraft({ stage: "direction-1" }); setPatternMessage("Select Direction 1"); }}>Select</button></div><div className="pattern-field-grid"><label>Spacing<BufferedNumberInput min={0.001} step="any" value={Number(fromMillimeters(patternDraft.spacing1, unitSystem).toFixed(4))} onValidValue={(value) => updatePatternDraft({ spacing1: toMillimeters(value, unitSystem) })}/><em>{unitSystem === "imperial" ? "in" : "mm"}</em></label><label>Instances<BufferedNumberInput min={2} max={100} step="1" value={patternDraft.count1} onValidValue={(value) => updatePatternDraft({ count1: Math.round(value) })}/></label></div><label className="pattern-check"><input type="checkbox" checked={patternDraft.flip1} onChange={(event) => updatePatternDraft({ flip1: event.target.checked })}/> Reverse Direction 1</label></div>
+        {patternDraft.kind === "rectangular-pattern" && <div className={`pattern-manager-section ${patternDraft.stage === "direction-2" ? "active-step" : ""}`}><b>3 · Direction 2</b><div className="pattern-reference-row"><span>{patternDraft.direction2 ? patternDraft.direction2.kind === "entity" ? "Sketch line" : "Reference edge / axis" : patternDraft.direction1 ? "Select in sketch" : "Waiting for Direction 1"}</span><button type="button" disabled={!patternDraft.direction1} onClick={() => { updatePatternDraft({ stage: "direction-2" }); setPatternMessage("Select Direction 2"); }}>Select</button></div><div className="pattern-field-grid"><label>Spacing<BufferedNumberInput min={0.001} step="any" value={Number(fromMillimeters(patternDraft.spacing2, unitSystem).toFixed(4))} onValidValue={(value) => updatePatternDraft({ spacing2: toMillimeters(value, unitSystem) })}/><em>{unitSystem === "imperial" ? "in" : "mm"}</em></label><label>Instances<BufferedNumberInput min={2} max={100} step="1" value={patternDraft.count2} onValidValue={(value) => updatePatternDraft({ count2: Math.round(value) })}/></label></div><label className="pattern-check"><input type="checkbox" checked={patternDraft.flip2} onChange={(event) => updatePatternDraft({ flip2: event.target.checked })}/> Reverse Direction 2</label></div>}
+      </> : <div className={`pattern-manager-section ${patternDraft.stage === "center" ? "active-step" : ""}`}><b>2 · Pattern Center</b><div className="pattern-reference-row"><span>{patternDraft.center ? "Center selected" : patternDraft.seedIds.length ? "Select in sketch" : "Waiting for geometry"}</span><button type="button" disabled={!patternDraft.seedIds.length} onClick={() => { updatePatternDraft({ stage: "center" }); setPatternMessage("Select a node, origin, background point, or free center"); }}>Select</button></div><div className="pattern-field-grid"><label>Instances<BufferedNumberInput min={2} max={100} step="1" value={patternDraft.circularCount} onValidValue={(value) => updatePatternDraft({ circularCount: Math.round(value) })}/></label><label>{patternDraft.equalSpacing ? "Total span" : "Angle between"}<BufferedNumberInput min={0.1} max={360} step="any" value={patternDraft.span} onValidValue={(value) => updatePatternDraft({ span: value })}/><em>deg</em></label></div><div className="pattern-field-grid"><label>Radius<BufferedNumberInput min={0.001} step="any" value={Number(fromMillimeters(patternDraft.radius, unitSystem).toFixed(4))} onValidValue={(value) => updatePatternDraft({ radius: toMillimeters(value, unitSystem) })}/><em>{unitSystem === "imperial" ? "in" : "mm"}</em></label><label>Arc angle<BufferedNumberInput min={-360} max={360} step="any" value={Number(patternDraft.arcAngle.toFixed(3))} onValidValue={(value) => updatePatternDraft({ arcAngle: value })}/><em>deg</em></label></div><label className="pattern-check"><input type="checkbox" checked={patternDraft.equalSpacing} onChange={(event) => updatePatternDraft({ equalSpacing: event.target.checked })}/> Equal spacing across angular span</label><label className="pattern-check"><input type="checkbox" checked={patternDraft.reverse} onChange={(event) => updatePatternDraft({ reverse: event.target.checked })}/> Reverse direction</label><label className="pattern-check"><input type="checkbox" checked={patternDraft.rotateInstances} onChange={(event) => updatePatternDraft({ rotateInstances: event.target.checked })}/> Rotate instances about center</label></div>}
+      <div className="pattern-manager-section"><b>Instances to Skip</b><label className="pattern-skip-field">Instance numbers<input type="text" placeholder="e.g. 3, 5" value={patternSkippedInput ?? patternDraft.skipped.map((index) => index + 1).join(", ")} onFocus={(event) => { setPatternSkippedInput(event.currentTarget.value); event.currentTarget.select(); }} onChange={(event) => { setPatternSkippedInput(event.target.value); updatePatternDraft({ skipped: parseSkippedInstances(event.target.value) }); }} onBlur={() => setPatternSkippedInput(null)}/></label><small>Instance 1 is the seed and cannot be skipped.</small></div>
+      <footer><button type="button" className="cancel" onClick={() => chooseTool("select")}>Cancel</button><button type="button" className="apply" disabled={!patternDraft.seedIds.length || (patternDraft.kind === "circular-pattern" ? !patternDraft.center : !patternDraft.direction1 || patternDraft.kind === "rectangular-pattern" && !patternDraft.direction2)} onClick={applyPattern}>✓ Create Pattern</button></footer>
+    </aside>}
+    <svg ref={svgRef} className={`sketch-canvas tool-${tool} ${dragging ? "dragging-point" : ""} ${draggingDimension ? "dragging-dimension" : ""} ${selectionMarquee ? "marquee-selecting" : ""} ${draggingSelection ? "dragging-selection" : ""} ${trimGesture ? "trimming-gesture" : ""}`} viewBox={`${viewX} ${viewY} ${viewWidth} ${viewHeight}`} preserveAspectRatio="xMidYMid slice" onPointerMove={onMove} onPointerUp={finishDrag} onPointerCancel={finishDrag} onPointerDown={onCanvasPointerDown} onDoubleClick={() => tool === "spline" && finishSpline()} onContextMenu={(event) => event.preventDefault()}>
       <defs><pattern id="minor-grid" width={gridSquareSize} height={gridSquareSize} patternUnits="userSpaceOnUse"><path d={`M ${gridSquareSize} 0 L 0 0 0 ${gridSquareSize}`} className="minor-grid-line" /></pattern><pattern id="major-grid" width={gridSquareSize * 5} height={gridSquareSize * 5} patternUnits="userSpaceOnUse"><rect width={gridSquareSize * 5} height={gridSquareSize * 5} fill="url(#minor-grid)"/><path d={`M ${gridSquareSize * 5} 0 L 0 0 0 ${gridSquareSize * 5}`} className="major-grid-line" /></pattern></defs>
       {showGrid && <rect x={viewX} y={viewY} width={viewWidth} height={viewHeight} fill="url(#major-grid)" />}
       <line x1={viewX} y1="0" x2={viewX + viewWidth} y2="0" className={`sketch-axis x ${hoveredReferenceId === "sketch-axis:x" || xAxisChosen ? "reference-highlighted" : ""}`}/><line x1="0" y1={viewY} x2="0" y2={viewY + viewHeight} className={`sketch-axis y ${hoveredReferenceId === "sketch-axis:y" || yAxisChosen ? "reference-highlighted" : ""}`}/>
-      {(tool === "linear-dimension" || tool === "angular-dimension") && externalReferences.map((reference) => {
+      {(tool === "linear-dimension" || tool === "angular-dimension" || isPatternTool(tool) && (patternDraft?.stage === "direction-1" || patternDraft?.stage === "direction-2" || patternDraft?.stage === "center")) && externalReferences.map((reference) => {
         if (reference.points.length < 2) return null;
         const collapsed = reference.kind === "body-edge" && reference.points.every((point) => distance(point, reference.points[0]) < 0.05);
-        const chooseExternalReference = (event: React.PointerEvent<SVGElement>) => { event.stopPropagation(); const position = pointFromEvent(event); if (reference.kind === "plane-intersection") chooseDimensionReference({ kind: "external-line", referenceId: reference.id, a: reference.points[0], b: reference.points.at(-1)!, source: "plane-intersection" }, position); else if (tool === "linear-dimension") chooseDimensionReference({ kind: "external-point", referenceId: reference.id, point: nearestPointOnPath(position, reference.points), source: "body-edge" }, position); };
+        const chooseExternalReference = (event: React.PointerEvent<SVGElement>) => { event.stopPropagation(); const position = pointFromEvent(event); if (isPatternTool(tool) && patternDraft) { if (patternDraft.kind === "circular-pattern" && patternDraft.stage === "center") choosePatternCenter({ kind: "external-point", referenceId: reference.id, fallback: nearestPointOnPath(position, reference.points) }); else { const direction = directionReferenceForExternal(reference); if (direction) choosePatternDirection(direction); } return; } if (reference.kind === "plane-intersection") chooseDimensionReference({ kind: "external-line", referenceId: reference.id, a: reference.points[0], b: reference.points.at(-1)!, source: "plane-intersection" }, position); else if (tool === "linear-dimension") chooseDimensionReference({ kind: "external-point", referenceId: reference.id, point: nearestPointOnPath(position, reference.points), source: "body-edge" }, position); };
         return collapsed ? <circle key={reference.id} className="external-reference-point" aria-label={reference.label} cx={reference.points[0].x} cy={reference.points[0].y} r={nodeRadius * 1.25} onPointerDown={chooseExternalReference}/> : <polyline key={reference.id} className={`external-reference ${reference.kind}`} aria-label={reference.label} points={reference.points.map((point) => `${point.x},${point.y}`).join(" ")} onPointerDown={chooseExternalReference}/>;
       })}
-      {entities.map((entity) => { const referenceId = `line:${entity.id}`; const dimensionLineTool = tool === "linear-dimension" || tool === "angular-dimension" || tool === "perpendicular-constraint" || tool === "mirror"; const referenceChosen = dimensionReferences.some((reference) => reference.kind === "line" && reference.entityId === entity.id); return <g key={entity.id} className={`sketch-entity ${selectedEntityIds.includes(entity.id) ? "selected" : ""} ${extendSource?.entityId === entity.id || cornerSource?.entityId === entity.id || perpendicularSource === entity.id ? "extend-source" : ""} ${entity.construction ? "construction" : ""} ${dimensionLineTool && entity.type === "line" || tool === "diameter-dimension" && entity.type === "circle" ? "constraint-selectable" : ""}`} onContextMenu={(event) => openConstraintShortcut(event, entity)} onPointerDown={(event) => handleEntityPointerDown(event, entity)}>
+      {entities.map((entity) => { const referenceId = `line:${entity.id}`; const dimensionLineTool = tool === "linear-dimension" || tool === "angular-dimension" || tool === "perpendicular-constraint" || tool === "mirror" || isPatternTool(tool) && patternDraft?.stage.startsWith("direction"); const referenceChosen = dimensionReferences.some((reference) => reference.kind === "line" && reference.entityId === entity.id); const checkOpen = sketchCheck?.affectedEntityIds.includes(entity.id); return <g key={entity.id} className={`sketch-entity ${selectedEntityIds.includes(entity.id) ? "selected" : ""} ${checkOpen ? "sketch-check-open" : ""} ${extendSource?.entityId === entity.id || cornerSource?.entityId === entity.id || perpendicularSource === entity.id ? "extend-source" : ""} ${entity.construction ? "construction" : ""} ${dimensionLineTool && entity.type === "line" || tool === "diameter-dimension" && entity.type === "circle" ? "constraint-selectable" : ""}`} onContextMenu={(event) => openConstraintShortcut(event, entity)} onPointerDown={(event) => handleEntityPointerDown(event, entity)}>
         {entity.type === "line" && <line className={hoveredReferenceId === referenceId || referenceChosen ? "reference-highlighted" : ""} x1={entity.a.x} y1={entity.a.y} x2={entity.b.x} y2={entity.b.y} />}
         {entity.type === "circle" && <circle cx={entity.c.x} cy={entity.c.y} r={entity.r} />}
         {entity.type === "ellipse" && <ellipse cx={entity.c.x} cy={entity.c.y} rx={entity.rx} ry={entity.ry} transform={entity.rotation ? `rotate(${entity.rotation * 180 / Math.PI} ${entity.c.x} ${entity.c.y})` : undefined} />}
@@ -867,19 +1106,28 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
         {tool === "trim" && entity.type === "circle" && <circle className="trim-hit" cx={entity.c.x} cy={entity.c.y} r={entity.r} />}
         {tool === "trim" && entity.type === "ellipse" && <ellipse className="trim-hit" cx={entity.c.x} cy={entity.c.y} rx={entity.rx} ry={entity.ry} transform={entity.rotation ? `rotate(${entity.rotation * 180 / Math.PI} ${entity.c.x} ${entity.c.y})` : undefined} />}
         {tool === "trim" && entity.type === "arc" && <path className="trim-hit" d={arcPath(entity.a, entity.b, entity.through)} />}
-        {tool === "trim" && entity.type === "spline" && <path className="trim-hit" d={splinePath(entity.points, entity.handles)} />}
+        {(tool === "trim" || tool === "corner") && entity.type === "spline" && <path className="trim-hit" d={splinePath(entity.points, entity.handles)} />}
         {entitySnapPoints(entity).map((candidate, index) => <circle key={index} className={`sketch-point ${candidate.kind}`} cx={candidate.point.x} cy={candidate.point.y} r={nodeRadius} />)}
       </g>; })}
+      {patternPreviewEntities.length > 0 && <g className="sketch-pattern-preview" aria-label="Pattern preview">{patternPreviewEntities.map((entity) => <g key={entity.id}>
+        {entity.type === "line" && <line x1={entity.a.x} y1={entity.a.y} x2={entity.b.x} y2={entity.b.y}/>}
+        {entity.type === "circle" && <circle cx={entity.c.x} cy={entity.c.y} r={entity.r}/>}
+        {entity.type === "ellipse" && <ellipse cx={entity.c.x} cy={entity.c.y} rx={entity.rx} ry={entity.ry} transform={entity.rotation ? `rotate(${entity.rotation * 180 / Math.PI} ${entity.c.x} ${entity.c.y})` : undefined}/>}
+        {entity.type === "arc" && <path d={arcPath(entity.a, entity.b, entity.through)}/>}
+        {entity.type === "spline" && <path d={splinePath(entity.points, entity.handles)}/>}
+      </g>)}</g>}
+      {sketchCheck?.openEndpoints.map((endpoint, index) => <g key={`sketch-check-endpoint-${index}`} className="sketch-check-endpoint" transform={`translate(${endpoint.point.x} ${endpoint.point.y}) scale(${1 / safeZoom})`} aria-label={`Open endpoint ${index + 1}`}><circle r="7"/><path d="M -3.5 -3.5 L 3.5 3.5 M 3.5 -3.5 L -3.5 3.5"/></g>)}
       {tool === "select" && entities.map((entity) => <g key={`controls-${entity.id}`} className={`control-layer ${selectedEntityIds.includes(entity.id) ? "active" : "inactive"}`}>{controlPointsForEntity(entity).map((control) => <circle key={control.handle} className="control-point" cx={control.point.x} cy={control.point.y} r={nodeRadius * (selectedEntityIds.includes(entity.id) ? 1.25 : 1)} onPointerDown={(event) => beginDrag(event, entity.id, control.handle, control.point)} onContextMenu={entity.type === "spline" ? (event) => openConstraintShortcut(event, entity) : undefined} />)}</g>)}
       {tool === "select" && entities.filter((entity): entity is Extract<SketchEntity, { type: "spline" }> => entity.type === "spline" && selectedEntityIds.includes(entity.id)).map((entity) => { const handles = entity.handles?.length === entity.points.length ? entity.handles : automaticSplineHandles(entity.points); return <g key={`spline-handles-${entity.id}`} className="spline-handle-layer">{entity.points.flatMap((point, index) => ([<line key={`${index}-in-line`} x1={point.x} y1={point.y} x2={handles[index].in.x} y2={handles[index].in.y}/>, <line key={`${index}-out-line`} x1={point.x} y1={point.y} x2={handles[index].out.x} y2={handles[index].out.y}/>, <circle key={`${index}-in`} cx={handles[index].in.x} cy={handles[index].in.y} r={nodeRadius * .9} onPointerDown={(event) => beginSplineHandleDrag(event, entity.id, index, "in")}/>, <circle key={`${index}-out`} cx={handles[index].out.x} cy={handles[index].out.y} r={nodeRadius * .9} onPointerDown={(event) => beginSplineHandleDrag(event, entity.id, index, "out")}/>]))}</g>; })}
-      {(tool === "linear-dimension" || tool === "angular-dimension") && <g className="axis-reference-layer">
-        <rect x={viewX} y={-11 / safeZoom} width={viewWidth} height={22 / safeZoom} className="axis-reference-hit x" role="button" tabIndex={0} aria-label="Red sketch X axis" onPointerEnter={(event) => hoverAxisOrLine("x", event)} onPointerMove={(event) => hoverAxisOrLine("x", event)} onPointerLeave={() => setHoveredReferenceId(null)} onPointerDown={(event) => chooseAxisOrLine("x", event)}/>
-        <rect x={-11 / safeZoom} y={viewY} width={22 / safeZoom} height={viewHeight} className="axis-reference-hit y" role="button" tabIndex={0} aria-label="Green sketch Y axis" onPointerEnter={(event) => hoverAxisOrLine("y", event)} onPointerMove={(event) => hoverAxisOrLine("y", event)} onPointerLeave={() => setHoveredReferenceId(null)} onPointerDown={(event) => chooseAxisOrLine("y", event)}/>
+      {(tool === "linear-dimension" || tool === "angular-dimension" || isPatternTool(tool) && patternDraft?.stage.startsWith("direction")) && <g className="axis-reference-layer">
+        <rect x={viewX} y={-11 / safeZoom} width={viewWidth} height={22 / safeZoom} className="axis-reference-hit x" role="button" tabIndex={0} aria-label="Red sketch X axis" onPointerEnter={(event) => hoverAxisOrLine("x", event)} onPointerMove={(event) => hoverAxisOrLine("x", event)} onPointerLeave={() => setHoveredReferenceId(null)} onPointerDown={(event) => isPatternTool(tool) ? choosePatternAxisOrLine("x", event) : chooseAxisOrLine("x", event)}/>
+        <rect x={-11 / safeZoom} y={viewY} width={22 / safeZoom} height={viewHeight} className="axis-reference-hit y" role="button" tabIndex={0} aria-label="Green sketch Y axis" onPointerEnter={(event) => hoverAxisOrLine("y", event)} onPointerMove={(event) => hoverAxisOrLine("y", event)} onPointerLeave={() => setHoveredReferenceId(null)} onPointerDown={(event) => isPatternTool(tool) ? choosePatternAxisOrLine("y", event) : chooseAxisOrLine("y", event)}/>
       </g>}
       {tool === "linear-dimension" && entities.map((entity) => <g key={`constraint-nodes-${entity.id}`} className="constraint-node-layer">{controlPointsForEntity(entity).map((control) => { const reference: SketchReference = { kind: "node", entityId: entity.id, handle: control.handle }; const referenceId = `node:${entity.id}:${control.handle}`; const chosen = dimensionReferences.some((candidate) => candidate.kind === "node" && candidate.entityId === reference.entityId && candidate.handle === reference.handle); const otherPoints = dimensionControlPoints.filter((candidate) => candidate.entityId !== entity.id || candidate.handle !== control.handle).map((candidate) => candidate.point); const preferredHitRadius = Math.max(nodeRadius, (entity.type === "line" ? 10 : 16) / safeZoom); const hitRadius = nonOverlappingReferenceHitRadius(control.point, otherPoints, preferredHitRadius, entity.type === "line" ? 0.22 : 0.45); const chooseNode = (event: React.PointerEvent<SVGCircleElement>) => { event.stopPropagation(); chooseDimensionReference(reference, pointFromEvent(event)); }; return <g key={control.handle}><circle className="constraint-node-hit" role="button" tabIndex={0} aria-label={`Dimension node ${entity.id} ${control.handle}`} cx={control.point.x} cy={control.point.y} r={hitRadius} onPointerEnter={() => setHoveredReferenceId(referenceId)} onPointerLeave={() => setHoveredReferenceId((current) => current === referenceId ? null : current)} onPointerDown={chooseNode} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseDimensionReference(reference, control.point); } }} /><circle className={`constraint-node ${hoveredReferenceId === referenceId || chosen ? "reference-highlighted" : ""}`} cx={control.point.x} cy={control.point.y} r={nodeRadius} /></g>; })}</g>)}
+      {trimGesture && trimGesture.points.length > 1 && <polyline className="trim-gesture-trail" points={trimGesture.points.map((point) => `${point.x},${point.y}`).join(" ")} />}
       {preview.length > 1 && <g className="sketch-preview">{tool === "circle" && draft[0] ? <circle cx={draft[0].x} cy={draft[0].y} r={distance(draft[0], cursor)} /> : tool === "ellipse" && draft.length === 2 ? <ellipse cx={draft[0].x} cy={draft[0].y} rx={Math.abs(draft[1].x - draft[0].x) || distance(draft[0], draft[1])} ry={Math.abs(cursor.y - draft[0].y)} /> : tool === "arc" && draft.length === 2 ? <path d={arcPath(draft[0], draft[1], cursor)} /> : tool === "rectangle" && draft[0] ? <rect x={Math.min(draft[0].x, cursor.x)} y={Math.min(draft[0].y, cursor.y)} width={Math.abs(cursor.x - draft[0].x)} height={Math.abs(cursor.y - draft[0].y)} /> : tool === "spline" ? <path d={splinePath(preview)} /> : <line x1={draft.at(-1)!.x} y1={draft.at(-1)!.y} x2={cursor.x} y2={cursor.y} />}</g>}
       {constraints.map((constraint) => {
-        if (constraint.type === "mirror") return null;
+        if (constraint.type === "mirror" || isPatternConstraint(constraint)) return null;
         if (constraint.type === "diameter") {
           const layout = diameterDimensionLayout(constraint.entityId, constraint.position, entities);
           const actualValue = diameterDimensionValue(constraint.entityId, entities); const displayedValue = constraint.conflicted ? actualValue : constraint.value;
@@ -907,13 +1155,18 @@ export function Sketcher({ entities: controlledEntities, constraints: controlled
         const anchor = entityBadgePoint(mirrored); const selectedMirror = selectedConstraintIds.includes(constraint.id);
         return <g key={`${constraint.id}-${index}`} role="button" tabIndex={0} aria-label="Mirror constraint; select and press Delete to unlink" transform={`translate(${anchor.x + 8 / safeZoom} ${anchor.y - 8 / safeZoom}) scale(${1 / safeZoom})`} className={`mirror-constraint-badge ${selectedMirror ? "selected" : ""}`} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); clearSelection(); setSelectedConstraintId(constraint.id); setTool("select"); }}><rect x="-4" y="-4" width="8" height="8" rx="1.5"/><text textAnchor="middle" dominantBaseline="central">M</text></g>;
       }))}
-      {entities.flatMap((entity) => entity.type === "spline" ? [] : entity.relations?.map((relation, index) => ({ entity, relation, index })).filter(({ relation }) => entity.axisConstraint !== relation && sketchRelationIsSatisfied(entity, relation) && (relation === "Horizontal" || relation === "Vertical" || relation === "Coincident" || relation === "Concentric" || relation === "Perpendicular")) ?? []).map(({ entity, relation, index }) => { const point = entity.type === "line" ? midpoint(entity.a, entity.b) : entity.type === "circle" || entity.type === "ellipse" ? entity.c : entity.type === "arc" ? entity.through : entity.points[0]; return <text key={`${entity.id}-${index}`} x={point.x + 5 + index * 8} y={point.y + 9} className="relation-glyph">{relation === "Horizontal" ? "H" : relation === "Vertical" ? "V" : relation === "Coincident" ? "●" : relation === "Perpendicular" ? "⊥" : "◎"}</text>; })}
+      {constraints.filter(isPatternConstraint).flatMap((constraint) => constraint.pairs.flatMap((pair) => pair.instances.map((instance, index) => {
+        const patterned = entities.find((entity) => entity.id === instance.entityId); if (!patterned) return null;
+        const anchor = entityBadgePoint(patterned); const selectedPattern = selectedConstraintIds.includes(constraint.id); const glyph = constraint.type === "linear-pattern" ? "L" : constraint.type === "rectangular-pattern" ? "R" : "C";
+        return <g key={`${constraint.id}-${pair.sourceId}-${index}`} role="button" tabIndex={0} aria-label={`${constraint.type.replace("-pattern", "")} pattern constraint; select and press Delete to unlink`} transform={`translate(${anchor.x + 7 / safeZoom} ${anchor.y - 7 / safeZoom}) scale(${1 / safeZoom})`} className={`pattern-constraint-badge ${selectedPattern ? "selected" : ""}`} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); clearSelection(); setSelectedConstraintId(constraint.id); setTool("select"); }}><circle r="3.2"/><text textAnchor="middle" dominantBaseline="central">{glyph}</text></g>;
+      })))}
+      {entities.flatMap((entity) => entity.type === "spline" ? [] : entity.relations?.map((relation, index) => ({ entity, relation, index })).filter(({ relation }) => entity.axisConstraint !== relation && sketchRelationIsSatisfied(entity, relation) && (relation === "Horizontal" || relation === "Vertical" || relation === "Coincident" || relation === "Concentric" || relation === "Perpendicular")) ?? []).map(({ entity, relation, index }) => { const point = entity.type === "line" ? midpoint(entity.a, entity.b) : entity.type === "circle" || entity.type === "ellipse" ? entity.c : (entity as Extract<SketchEntity, { type: "arc" }>).through; return <text key={`${entity.id}-${index}`} x={point.x + 5 + index * 8} y={point.y + 9} className="relation-glyph">{relation === "Horizontal" ? "H" : relation === "Vertical" ? "V" : relation === "Coincident" ? "●" : relation === "Perpendicular" ? "⊥" : "◎"}</text>; })}
       {snap && sketchingToolActive && <g className={`snap-marker ${snap.kind}`}><circle cx={snap.point.x} cy={snap.point.y} r={gridSquareSize / 2}/><text x={snap.point.x + 7} y={snap.point.y - 7}>{snap.kind}</text></g>}
-      {editingDimension && editingDimensionPosition && <foreignObject x="-36" y="-16" width="72" height="32" transform={`translate(${editingDimensionPosition.x} ${editingDimensionPosition.y}) scale(${dimensionLabelScale})`}><input ref={dimensionInputRef} className="dimension-editor" aria-label="Dimension value" value={dimensionValue} onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onChange={(event) => setDimensionValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") applyDimension(); if (event.key === "Escape") setEditingDimension(null); }} onBlur={applyDimension} /></foreignObject>}
-      {editingConstraint && editingConstraintPosition && <foreignObject x="-38" y="-16" width="76" height="32" transform={`translate(${editingConstraintPosition.x} ${editingConstraintPosition.y}) scale(${dimensionLabelScale})`}><input ref={dimensionInputRef} className="dimension-editor constraint-editor" aria-label={editingConstraint.type === "angular" ? "Angular constraint value" : editingConstraint.type === "diameter" ? "Diameter constraint value" : "Linear constraint value"} value={dimensionValue} onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onChange={(event) => setDimensionValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") applyConstraintDimension(); if (event.key === "Escape") setEditingConstraintId(null); }} onBlur={applyConstraintDimension} /></foreignObject>}
+      {editingDimension && editingDimensionPosition && <foreignObject x="-36" y="-16" width="72" height="32" transform={`translate(${editingDimensionPosition.x} ${editingDimensionPosition.y}) scale(${dimensionLabelScale})`}><input ref={dimensionInputRef} className="dimension-editor" aria-label="Dimension value" value={dimensionValue} onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onChange={(event) => setDimensionValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } if (event.key === "Escape") { event.preventDefault(); cancelDimensionEditOnBlur.current = true; setEditingDimension(null); } }} onBlur={() => { if (cancelDimensionEditOnBlur.current) cancelDimensionEditOnBlur.current = false; else applyDimension(); }} /></foreignObject>}
+      {editingConstraint && editingConstraintPosition && <foreignObject x="-38" y="-16" width="76" height="32" transform={`translate(${editingConstraintPosition.x} ${editingConstraintPosition.y}) scale(${dimensionLabelScale})`}><input ref={dimensionInputRef} className="dimension-editor constraint-editor" aria-label={editingConstraint.type === "angular" ? "Angular constraint value" : editingConstraint.type === "diameter" ? "Diameter constraint value" : "Linear constraint value"} value={dimensionValue} onPointerDown={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()} onChange={(event) => setDimensionValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } if (event.key === "Escape") { event.preventDefault(); cancelDimensionEditOnBlur.current = true; setEditingConstraintId(null); } }} onBlur={() => { if (cancelDimensionEditOnBlur.current) cancelDimensionEditOnBlur.current = false; else applyConstraintDimension(); }} /></foreignObject>}
     </svg>
     {constraintShortcut && <div className="sketch-constraint-shortcut" style={{ left: constraintShortcut.x, top: constraintShortcut.y }} role="menu" aria-label="Suggested line constraint"><button role="menuitem" title={`Apply ${constraintShortcut.relation.toLowerCase()} constraint`} onClick={() => applyAxisConstraint(constraintShortcut.entityId, constraintShortcut.relation)}><span className={`axis-constraint-icon ${constraintShortcut.relation.toLowerCase()}`} />{constraintShortcut.relation}</button></div>}
     {splineContextMenu && <div className="sketch-constraint-shortcut sketch-spline-context" style={{ left: splineContextMenu.x, top: splineContextMenu.y }} role="menu" aria-label="Spline point editing">{splineContextMenu.kind === "point" ? <button className="delete" role="menuitem" onClick={deleteSplinePointFromMenu}>Delete spline point</button> : <button className="add" role="menuitem" onClick={addSplinePointFromMenu}>Add spline point</button>}</div>}
-    <div className={`sketch-status ${hasConstraintConflict ? "over-defined" : ""}`}><span>{viewRotated ? "Sketch view rotated · middle-drag orbit · right-drag pan · wheel zoom · Snap normal to edit" : tool === "mirror" ? mirrorMessage ?? "Mirror · select geometry, then select a separate straight line as the mirror axis" : tool === "extend" ? extendMessage ?? "Extend · select the line, arc, or circle to extend, then select its target geometry" : tool === "corner" ? cornerMessage ?? "Corner · select the first line segment, then the second non-parallel line segment" : tool === "perpendicular-constraint" ? perpendicularSource ? perpendicularMessage ?? "Perpendicular · select the second line segment" : perpendicularMessage ?? "Perpendicular · select the first line segment" : tool === "linear-dimension" ? dimensionReferences.length === 0 ? "Linear dimension · select references · double-click a line for its segment length" : dimensionReferences.length === 1 ? dimensionMessage ?? "Linear dimension · select the second reference · line references measure perpendicular distance" : `Linear dimension · move to position · Tab cycles ${dimensionOptions.join(" / ")} · click to place` : tool === "angular-dimension" ? dimensionReferences.length === 0 ? "Angular dimension · select the first line" : dimensionReferences.length === 1 ? dimensionMessage ?? "Angular dimension · select a second non-parallel line" : "Angular dimension · move to choose angle side · click to place" : tool === "diameter-dimension" ? diameterEntityId ? "Diameter dimension · move the label and click to place" : dimensionMessage ?? "Diameter dimension · select a circle" : "Wheel zoom · right-drag pan · middle-drag orbit · " + (tool === "select" ? "Shift-click adds/removes geometry · left-drag selection box · drag any selected item to move the group · Delete removes selection" : tool === "spline" ? "click control points · Enter or double-click to finish" : `${tool}: click to place points · Esc to finish`)}</span><span>{selectionCount ? `${selectionCount} selected` : activeEntity ? `${activeEntity.type} · ${activeEntity.relations?.join(", ")}` : `${entities.length} entities · ${constraints.length} constraints`}</span><span>{hasConstraintConflict ? "Over defined" : viewRotated ? "3D inspection" : snapEnabled ? "Snap on" : "Free drag"} <i /></span></div>
+    <div className={`sketch-status ${hasConstraintConflict ? "over-defined" : ""} ${tool === "sketch-check" && sketchCheck && !sketchCheck.viable ? "check-failed" : ""}`}><span>{viewRotated ? "Sketch view rotated · middle-drag orbit · right-drag pan · wheel zoom · Snap normal to edit" : tool === "sketch-check" ? sketchCheckMessage ?? "SketchCheck · checking profile viability" : tool === "trim" ? trimMessage ?? "Trim · click one segment, or press and drag a dotted cutter across several segments" : tool === "mirror" ? mirrorMessage ?? "Mirror · select geometry, then select a separate straight line as the mirror axis" : isPatternTool(tool) ? patternMessage ?? "Pattern · select seed geometry and its reference" : tool === "extend" ? extendMessage ?? "Extend · select the line, arc, or circle to extend, then select its target geometry" : tool === "corner" ? cornerMessage ?? "Corner · select the first line segment, then the second non-parallel line segment" : tool === "perpendicular-constraint" ? perpendicularSource ? perpendicularMessage ?? "Perpendicular · select the second line segment" : perpendicularMessage ?? "Perpendicular · select the first line segment" : tool === "linear-dimension" ? dimensionReferences.length === 0 ? "Linear dimension · select references · double-click a line for its segment length" : dimensionReferences.length === 1 ? dimensionMessage ?? "Linear dimension · select the second reference · line references measure perpendicular distance" : `Linear dimension · move to position · Tab cycles ${dimensionOptions.join(" / ")} · click to place` : tool === "angular-dimension" ? dimensionReferences.length === 0 ? "Angular dimension · select the first line" : dimensionReferences.length === 1 ? dimensionMessage ?? "Angular dimension · select a second non-parallel line" : "Angular dimension · move to choose angle side · click to place" : tool === "diameter-dimension" ? diameterEntityId ? "Diameter dimension · move the label and click to place" : dimensionMessage ?? "Diameter dimension · select a circle" : "Wheel zoom · right-drag pan · middle-drag orbit · " + (tool === "select" ? sketchCheckMessage ?? "Shift-click adds/removes geometry · left-drag selection box · drag any selected item to move the group · Delete removes selection" : tool === "spline" ? "click control points · Enter or double-click to finish" : `${tool}: click to place points · Esc to finish`)}</span><span>{selectionCount ? `${selectionCount} selected` : activeEntity ? `${activeEntity.type} · ${activeEntity.relations?.join(", ")}` : `${entities.length} entities · ${constraints.length} constraints`}</span><span>{tool === "sketch-check" && sketchCheck ? sketchCheck.viable ? "Profile viable" : `${sketchCheck.openEndpoints.length} open` : hasConstraintConflict ? "Over defined" : viewRotated ? "3D inspection" : snapEnabled ? "Snap on" : "Free drag"} <i /></span></div>
   </div>;
 }

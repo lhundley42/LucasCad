@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { sampleSketchEntity, type SketchEntity } from "./sketchGeometry";
 import type { ExternalSketchReference, SketchView } from "./Sketcher";
 
@@ -26,7 +25,7 @@ export type ReferencePointRecord = { id: string; name: string; type: "point"; po
 export type ReferenceGeometryRecord = ReferencePlaneRecord | ReferenceAxisRecord | ReferencePointRecord;
 export type SketchPlane = "XY" | "XZ" | "YZ" | { kind: "face"; bodyId: string; faceIndex: number; faceId: string } | { kind: "reference-plane"; referenceId: string };
 export type SketchRecord = { id: string; name: string; plane: SketchPlane; entities: unknown[]; flipped?: boolean; visible?: boolean };
-export type FeatureType = "extrude" | "revolve" | "fillet" | "chamfer" | "draft";
+export type FeatureType = "extrude" | "revolve" | "fillet" | "chamfer" | "draft" | "shell";
 export type RevolveAxisReference =
   | { kind: "origin-axis"; axis: "x" | "y" | "z"; label: string }
   | { kind: "sketch-line"; sketchId: string; entityId: string; label: string }
@@ -34,18 +33,107 @@ export type RevolveAxisReference =
   | { kind: "reference-axis"; referenceId: string; label: string };
 export type ChamferMethod = "symmetric" | "angle-distance" | "distance-distance";
 export type ChamferParameter = "distance" | "distance2" | "angle";
-export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; combine?: "new" | "union" | "cut"; bodyId?: string; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; visible?: boolean };
+export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; combine?: "new" | "union" | "cut"; bodyId?: string; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; thickness?: number; outward?: boolean; visible?: boolean };
 export type DocumentRequest = { sketches: SketchRecord[]; features: FeatureRecord[]; referenceGeometry?: ReferenceGeometryRecord[] };
 export type SelectedFace = AxisSelectionMetadata & { id: string; bodyId: string; faceIndex: number; center?: VectorTuple; normal?: VectorTuple; planar?: boolean };
 export type SelectedEdge = AxisSelectionMetadata & { id: string; bodyId: string; edgeIndex: number; points?: VectorTuple[]; linear?: boolean };
-export type SolidSelectionMode = "edges" | "draft-neutral" | "draft-faces" | null;
+export type SolidSelectionMode = "edges" | "draft-neutral" | "draft-faces" | "shell-faces" | null;
 export type FeaturePreview =
   | { type: "extrude"; sketchId: string; combine: "new" | "union" | "cut"; targetBodyId?: string; extent: "one-sided" | "symmetric" | "bidirectional"; distance: number; distancePlus: number; distanceMinus: number; direction: 1 | -1 }
   | { type: "fillet"; targetBodyId: string; edgeIndices: number[]; radius: number }
   | { type: "chamfer"; targetBodyId: string; edgeIndices: number[]; method: ChamferMethod; distance: number; distance2: number; angle: number; flip: boolean }
-  | { type: "draft"; targetBodyId: string; neutralFaceIndex: number; faceIndices: number[]; angle: number; reverse: boolean };
+  | { type: "draft"; targetBodyId: string; neutralFaceIndex: number; faceIndices: number[]; angle: number; reverse: boolean }
+  | { type: "shell"; targetBodyId: string; faceIndices: number[]; thickness: number; outward: boolean };
 type DocumentStatus = "idle" | "connecting" | "ready" | "offline" | "error";
-type SavedView = { position: THREE.Vector3; target: THREE.Vector3; up: THREE.Vector3 };
+type SavedView = { position: THREE.Vector3; target: THREE.Vector3; up: THREE.Vector3; quaternion: THREE.Quaternion };
+
+class PickedPivotControls extends THREE.EventDispatcher<{ change: {} }> {
+  readonly target = new THREE.Vector3();
+  enabled = true;
+  private drag: { pointerId: number; mode: "rotate" | "pan"; x: number; y: number } | null = null;
+
+  constructor(private readonly camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, private readonly element: HTMLElement) {
+    super();
+    element.addEventListener("pointerdown", this.onPointerDown);
+    element.addEventListener("pointermove", this.onPointerMove);
+    element.addEventListener("pointerup", this.onPointerUp);
+    element.addEventListener("pointercancel", this.onPointerUp);
+    element.addEventListener("wheel", this.onWheel, { passive: false });
+  }
+
+  private dragModeFor = (event: PointerEvent): "rotate" | "pan" => {
+    const middlePressed = (event.buttons & 4) !== 0; const rightPressed = (event.buttons & 2) !== 0;
+    return rightPressed || middlePressed && event.shiftKey ? "pan" : "rotate";
+  };
+
+  private onPointerDown = (event: PointerEvent) => {
+    if (!this.enabled || event.button !== 1 && event.button !== 2) return;
+    const mode = this.dragModeFor(event);
+    this.drag = { pointerId: event.pointerId, mode, x: event.clientX, y: event.clientY };
+    this.element.setPointerCapture(event.pointerId);
+  };
+
+  private onPointerMove = (event: PointerEvent) => {
+    if (!this.enabled || !this.drag || this.drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - this.drag.x; const dy = event.clientY - this.drag.y;
+    this.drag.x = event.clientX; this.drag.y = event.clientY;
+    if (Math.abs(dx) + Math.abs(dy) < 0.01) return;
+    const activeMode = this.dragModeFor(event);
+    if (activeMode === "rotate") {
+      const screenUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion).normalize();
+      const screenRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion).normalize();
+      const yaw = new THREE.Quaternion().setFromAxisAngle(screenUp, -dx * 0.008);
+      const pitch = new THREE.Quaternion().setFromAxisAngle(screenRight, -dy * 0.008);
+      const rotation = pitch.multiply(yaw);
+      this.camera.position.sub(this.target).applyQuaternion(rotation).add(this.target);
+      this.camera.quaternion.premultiply(rotation).normalize();
+      this.camera.up.applyQuaternion(rotation).normalize();
+    } else {
+      const worldPerPixel = this.camera instanceof THREE.OrthographicCamera
+        ? (this.camera.top - this.camera.bottom) / Math.max(this.camera.zoom, 0.0001) / Math.max(this.element.clientHeight, 1)
+        : 2 * Math.max(1, this.camera.position.distanceTo(this.target)) * Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)) / Math.max(this.element.clientHeight, 1);
+      const screenRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+      const screenUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      const translation = screenRight.multiplyScalar(-dx * worldPerPixel).addScaledVector(screenUp, dy * worldPerPixel);
+      this.camera.position.add(translation); this.target.add(translation);
+    }
+    this.dispatchEvent({ type: "change" });
+  };
+
+  private onPointerUp = (event: PointerEvent) => {
+    if (!this.drag || this.drag.pointerId !== event.pointerId) return;
+    if ((event.buttons & 6) !== 0) {
+      this.drag = { pointerId: event.pointerId, mode: this.dragModeFor(event), x: event.clientX, y: event.clientY }; return;
+    }
+    this.drag = null;
+    if (this.element.hasPointerCapture(event.pointerId)) this.element.releasePointerCapture(event.pointerId);
+  };
+
+  private onWheel = (event: WheelEvent) => {
+    if (!this.enabled) return;
+    event.preventDefault();
+    const factor = Math.exp(THREE.MathUtils.clamp(event.deltaY, -240, 240) * 0.0015);
+    if (this.camera instanceof THREE.OrthographicCamera) {
+      this.camera.zoom = THREE.MathUtils.clamp(this.camera.zoom / factor, 0.05, 40);
+      this.camera.updateProjectionMatrix();
+    } else {
+      const offset = this.camera.position.clone().sub(this.target);
+      const nextDistance = THREE.MathUtils.clamp(offset.length() * factor, 0.1, 100000);
+      this.camera.position.copy(this.target).add(offset.setLength(nextDistance));
+    }
+    this.dispatchEvent({ type: "change" });
+  };
+
+  update() { /* Camera transforms are applied immediately by the pointer handlers. */ }
+  handleResize() { /* Pixel-to-world panning reads the live element size. */ }
+  dispose() {
+    this.element.removeEventListener("pointerdown", this.onPointerDown);
+    this.element.removeEventListener("pointermove", this.onPointerMove);
+    this.element.removeEventListener("pointerup", this.onPointerUp);
+    this.element.removeEventListener("pointercancel", this.onPointerUp);
+    this.element.removeEventListener("wheel", this.onWheel);
+  }
+}
 
 type Props = {
   document: DocumentRequest;
@@ -215,6 +303,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       const saved = savedViewRef.current;
       camera.position.copy(saved?.position ?? new THREE.Vector3(155, -175, 135));
       camera.up.copy(saved?.up ?? new THREE.Vector3(0, 0, 1));
+      if (saved?.quaternion) camera.quaternion.copy(saved.quaternion);
     }
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -224,19 +313,8 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
 
     const sketchCanvas = sketchMode ? host.parentElement?.querySelector(".sketch-canvas") : null;
     const navigationElement = (sketchCanvas ?? renderer.domElement) as HTMLElement;
-    const controls = new OrbitControls(camera, navigationElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.target.copy(savedViewRef.current?.target ?? new THREE.Vector3(0, 0, 10));
-    controls.mouseButtons.LEFT = sketchMode ? null : THREE.MOUSE.ROTATE;
-    controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
-    controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
-    if (camera instanceof THREE.OrthographicCamera) {
-      controls.minZoom = 0.05;
-      controls.maxZoom = 40;
-    }
-    const preventContextMenu = (event: Event) => event.preventDefault();
-    navigationElement.addEventListener("contextmenu", preventContextMenu);
+    const controls = new PickedPivotControls(camera, navigationElement);
+    controls.target.copy(savedViewRef.current?.target ?? new THREE.Vector3(0, 0, 0));
 
     scene.add(new THREE.HemisphereLight(0xdaf3ff, 0x17202a, 2.2));
     const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(120, -100, 180); scene.add(key);
@@ -250,14 +328,40 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     const sketchLayer = new THREE.Group();
     const liveSketchLayer = new THREE.Group();
     const previewLayer = new THREE.Group();
+    const pivotIndicator = new THREE.Mesh(new THREE.RingGeometry(0.72, 1, 32), new THREE.MeshBasicMaterial({ color: 0xffb44f, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+    pivotIndicator.visible = false; pivotIndicator.renderOrder = 20;
     liveSketchGroupRef.current = liveSketchLayer;
-    scene.add(model, selectableEdges, selectedFaceOverlay, sketchLayer, liveSketchLayer, previewLayer);
+    scene.add(model, selectableEdges, selectedFaceOverlay, sketchLayer, liveSketchLayer, previewLayer, pivotIndicator);
     let selected: THREE.Mesh | null = null;
     let disposed = false;
     let activeFrame: WorldSketchFrame | null = null;
     let draftNeutralNormal: THREE.Vector3 | null = null;
     let lastRotated: boolean | null = null;
     let lastView = sketchViewRef.current;
+    let pivotVisibleUntil = 0;
+    const viewMenu = window.document.createElement("div");
+    viewMenu.className = "model-view-context-menu"; viewMenu.hidden = true; viewMenu.setAttribute("role", "menu"); viewMenu.setAttribute("aria-label", "Model view commands");
+    const recenterButton = window.document.createElement("button"); recenterButton.type = "button"; recenterButton.setAttribute("role", "menuitem"); recenterButton.textContent = "Center view on origin";
+    const planarButton = window.document.createElement("button"); planarButton.type = "button"; planarButton.setAttribute("role", "menuitem"); planarButton.textContent = "Snap to nearest planar view";
+    viewMenu.append(recenterButton, planarButton); host.appendChild(viewMenu);
+    const hideViewMenu = () => { viewMenu.hidden = true; };
+    const showPivot = (point: THREE.Vector3) => { pivotIndicator.position.copy(point); pivotIndicator.visible = true; pivotVisibleUntil = performance.now() + 1250; };
+    const centerViewOnOrigin = () => {
+      if (!(camera instanceof THREE.PerspectiveCamera)) return;
+      const distance = Math.max(1, camera.position.distanceTo(controls.target)); const direction = new THREE.Vector3(); camera.getWorldDirection(direction);
+      controls.target.set(0, 0, 0); camera.position.copy(direction.multiplyScalar(-distance)); camera.lookAt(controls.target); showPivot(controls.target); hideViewMenu();
+    };
+    const snapNearestPlanarView = () => {
+      if (!(camera instanceof THREE.PerspectiveCamera)) return;
+      const direction = new THREE.Vector3(); camera.getWorldDirection(direction);
+      const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)];
+      const nearest = axes.reduce((best, axis) => axis.dot(direction) > best.dot(direction) ? axis : best, axes[0]);
+      const distance = Math.max(1, camera.position.distanceTo(controls.target)); camera.position.copy(controls.target).addScaledVector(nearest, -distance);
+      if (Math.abs(nearest.z) > 0.9) camera.up.set(0, 1, 0); else camera.up.set(0, 0, 1);
+      camera.lookAt(controls.target); hideViewMenu();
+    };
+    recenterButton.addEventListener("click", centerViewOnOrigin); planarButton.addEventListener("click", snapNearestPlanarView);
+    viewMenu.addEventListener("pointerdown", (event) => event.stopPropagation());
     const selectionPulseMaterials: THREE.PointsMaterial[] = [];
     const originPlaneHits: THREE.Mesh[] = [];
     const referencePlaneHits: THREE.Mesh[] = [];
@@ -298,7 +402,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     const renderPreviewFaces = (faces: FacePayload[]) => {
       if (!featurePreview) return;
       disposePreviewLayer();
-      const previewColor = featurePreview.type === "extrude" && featurePreview.combine === "cut" ? 0xff5264 : featurePreview.type === "draft" ? 0xf3b34b : 0x52e3a0;
+      const previewColor = featurePreview.type === "extrude" && featurePreview.combine === "cut" ? 0xff5264 : featurePreview.type === "draft" ? 0xf3b34b : featurePreview.type === "shell" ? 0x58d6c1 : 0x52e3a0;
       for (const face of faces) {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.Float32BufferAttribute(face.vertices.flat(), 3));
@@ -363,7 +467,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
           const baseOpacity = targetReplacedByPreview ? faceSelected ? 0.16 : 0.001 : sketchMode ? 0.42 : 1;
           const material = new THREE.MeshStandardMaterial({ color: faceColor(face.id, face.bodyId), emissive: featureHighlighted ? 0x4a2500 : faceSelected ? 0x49310a : 0x000000, emissiveIntensity: featureHighlighted ? 0.45 : faceSelected ? 0.35 : 0, roughness: 0.55, metalness: 0.06, side: THREE.DoubleSide, transparent: sketchMode || targetReplacedByPreview, opacity: baseOpacity, depthWrite: !sketchMode && !targetReplacedByPreview });
           const mesh = new THREE.Mesh(geometry, material); mesh.userData = { faceId: face.id, bodyId: face.bodyId, faceIndex: face.faceIndex, center: face.center, normal: face.normal, baseOpacity, draftCandidate, planar: face.planar !== false, geometryType: face.geometryType, axisOrigin: face.axisOrigin, axisDirection: face.axisDirection, axisKind: face.axisKind }; model.add(mesh);
-          if (faceSelected && (solidSelectionMode === "draft-neutral" || solidSelectionMode === "draft-faces")) {
+          if (faceSelected && (solidSelectionMode === "draft-neutral" || solidSelectionMode === "draft-faces" || solidSelectionMode === "shell-faces")) {
             const overlay = new THREE.Mesh(geometry.clone(), new THREE.MeshBasicMaterial({ color: faceColor(face.id, face.bodyId), transparent: true, opacity: selectedFaceIds.indexOf(face.id) === 0 ? 0.48 : 0.38, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
             overlay.renderOrder = 8; selectedFaceOverlay.add(overlay);
             const overlayEdges = new THREE.LineSegments(new THREE.EdgesGeometry(overlay.geometry, 18), new THREE.LineBasicMaterial({ color: selectedFaceIds.indexOf(face.id) === 0 ? 0xffd36a : 0x72dcff, transparent: true, opacity: 1, depthTest: false, depthWrite: false }));
@@ -547,8 +651,9 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
           }
         } else if (!savedViewRef.current) {
           onExternalReferencesChange?.([]);
-          controls.target.set(0, 0, data.properties.bounds.z / 2);
+          controls.target.set(0, 0, 0);
           camera.position.set(size * 1.5, -size * 1.7, size * 1.25);
+          camera.lookAt(controls.target);
         }
         camera.near = Math.max(0.01, size / 1000); camera.far = Math.max(10000, size * 100); camera.updateProjectionMatrix(); controls.update(); syncSketchView();
         onStatus("ready", data.properties);
@@ -625,21 +730,50 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       const faceHit = meshHits()[0];
       return !faceHit || axisHit.distance <= faceHit.distance + raycaster.params.Line.threshold ? axisHit : null;
     };
+    const nearestRenderedPoint = (event: PointerEvent) => {
+      const bounds = renderer.domElement.getBoundingClientRect(); const cursor = new THREE.Vector2(event.clientX, event.clientY); let nearest: { point: THREE.Vector3; distance: number } | null = null;
+      const objects = [...model.children.filter((object) => object instanceof THREE.Mesh), ...selectableEdges.children, ...sketchLayer.children.filter((object) => object instanceof THREE.Line)];
+      for (const object of objects) {
+        const position = (object as THREE.Mesh | THREE.Line).geometry.getAttribute("position"); if (!position) continue;
+        const stride = Math.max(1, Math.ceil(position.count / 600));
+        for (let index = 0; index < position.count; index += stride) {
+          const world = new THREE.Vector3().fromBufferAttribute(position as THREE.BufferAttribute, index); object.localToWorld(world);
+          const projected = world.clone().project(camera); const screen = new THREE.Vector2(bounds.left + (projected.x + 1) * bounds.width / 2, bounds.top + (1 - projected.y) * bounds.height / 2);
+          const separation = screen.distanceTo(cursor); if (separation <= 22 && (!nearest || separation < nearest.distance)) nearest = { point: world, distance: separation };
+        }
+      }
+      return nearest?.point ?? null;
+    };
+    const setNavigationPivot = (event: PointerEvent) => {
+      if (sketchMode || event.button !== 0) return false;
+      pointRayAt(event);
+      const pivotHit = raycaster.intersectObjects([
+        ...model.children.filter((object) => object instanceof THREE.Mesh),
+        ...selectableEdges.children,
+        ...sketchLayer.children.filter((object) => object instanceof THREE.Line),
+      ], false).sort((first, second) => first.distance - second.distance)[0];
+      const point = pivotHit?.point ?? nearestRenderedPoint(event); if (!point) return false;
+      controls.target.copy(point); showPivot(point); return true;
+    };
     const onDown = (event: PointerEvent) => {
       pointerDown = { x: event.clientX, y: event.clientY };
-      if (event.button !== 0 || (!extrusionArrowHits.length && !chamferArrowHits.length && !referencePlaneArrowHits.length)) return;
-      pointRayAt(event);
-      const hit = raycaster.intersectObjects([...extrusionArrowHits, ...chamferArrowHits, ...referencePlaneArrowHits], false)[0]; if (!hit) return;
-      const handle = hit.object as THREE.Mesh; const axis = (handle.userData.arrowDirection as THREE.Vector3).clone(); const cameraDirection = new THREE.Vector3(); camera.getWorldDirection(cameraDirection);
-      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(cameraDirection, hit.point); const start = raycaster.ray.intersectPlane(plane, new THREE.Vector3()) ?? hit.point.clone();
-      if (handle.userData.referencePlaneOffset !== undefined) {
-        referencePlaneDrag = { pointerId: event.pointerId, originalOffset: handle.userData.referencePlaneOffset, pendingOffset: handle.userData.referencePlaneOffset, lastOffset: handle.userData.referencePlaneOffset, axis, plane, start };
-      } else if (handle.userData.chamferParameter) {
-        chamferDrag = { pointerId: event.pointerId, parameter: handle.userData.chamferParameter, originalValue: handle.userData.chamferValue, pendingValue: handle.userData.chamferValue, dragScale: handle.userData.dragScale, axis, origin: (handle.userData.arrowOrigin as THREE.Vector3).clone(), plane, start, helper: handle.userData.arrowHelper, hitHandle: handle };
-      } else {
-        arrowDrag = { pointerId: event.pointerId, direction: handle.userData.extrusionDirection, originalDistance: handle.userData.extrusionDistance, pendingDistance: handle.userData.extrusionDistance, axis, origin: (handle.userData.arrowOrigin as THREE.Vector3).clone(), plane, start, helper: handle.userData.arrowHelper, hitHandle: handle };
+      if (event.button === 0 && (extrusionArrowHits.length || chamferArrowHits.length || referencePlaneArrowHits.length)) {
+        pointRayAt(event);
+        const hit = raycaster.intersectObjects([...extrusionArrowHits, ...chamferArrowHits, ...referencePlaneArrowHits], false)[0];
+        if (hit) {
+          const handle = hit.object as THREE.Mesh; const axis = (handle.userData.arrowDirection as THREE.Vector3).clone(); const cameraDirection = new THREE.Vector3(); camera.getWorldDirection(cameraDirection);
+          const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(cameraDirection, hit.point); const start = raycaster.ray.intersectPlane(plane, new THREE.Vector3()) ?? hit.point.clone();
+          if (handle.userData.referencePlaneOffset !== undefined) {
+            referencePlaneDrag = { pointerId: event.pointerId, originalOffset: handle.userData.referencePlaneOffset, pendingOffset: handle.userData.referencePlaneOffset, lastOffset: handle.userData.referencePlaneOffset, axis, plane, start };
+          } else if (handle.userData.chamferParameter) {
+            chamferDrag = { pointerId: event.pointerId, parameter: handle.userData.chamferParameter, originalValue: handle.userData.chamferValue, pendingValue: handle.userData.chamferValue, dragScale: handle.userData.dragScale, axis, origin: (handle.userData.arrowOrigin as THREE.Vector3).clone(), plane, start, helper: handle.userData.arrowHelper, hitHandle: handle };
+          } else {
+            arrowDrag = { pointerId: event.pointerId, direction: handle.userData.extrusionDirection, originalDistance: handle.userData.extrusionDistance, pendingDistance: handle.userData.extrusionDistance, axis, origin: (handle.userData.arrowOrigin as THREE.Vector3).clone(), plane, start, helper: handle.userData.arrowHelper, hitHandle: handle };
+          }
+          controls.enabled = false; renderer.domElement.setPointerCapture(event.pointerId); renderer.domElement.style.cursor = "grabbing"; event.preventDefault(); event.stopPropagation(); return;
+        }
       }
-      controls.enabled = false; renderer.domElement.setPointerCapture(event.pointerId); renderer.domElement.style.cursor = "grabbing"; event.preventDefault(); event.stopPropagation();
+      hideViewMenu();
     };
     const onMove = (event: PointerEvent) => {
       pointRayAt(event);
@@ -696,10 +830,10 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       if (!axisHit && !planeHit && referenceHit?.object) {
         hoveredReference = referenceHit.object; const material = (hoveredReference as THREE.Mesh | THREE.Line).material as THREE.MeshBasicMaterial; material.opacity = 1; material.color.set(0xffd36a);
       }
-      const edgeHit = referencePlanePicking || revolveAxisPicking || solidSelectionMode === "draft-neutral" || solidSelectionMode === "draft-faces" ? null : visibleEdgeHit();
+      const edgeHit = referencePlanePicking || revolveAxisPicking || solidSelectionMode === "draft-neutral" || solidSelectionMode === "draft-faces" || solidSelectionMode === "shell-faces" ? null : visibleEdgeHit();
       if (edgeHit?.object instanceof THREE.Line) {
         hoveredEdge = edgeHit.object; const material = hoveredEdge.material as THREE.LineBasicMaterial; material.opacity = 1; material.color.set(0xffd36a);
-      } else if (!edgeHit && !planeHit && (referenceAxisPicking || referencePlanePicking || sketchSupportPicking || solidSelectionMode === "draft-neutral" || solidSelectionMode === "draft-faces")) {
+      } else if (!edgeHit && !planeHit && (referenceAxisPicking || referencePlanePicking || sketchSupportPicking || solidSelectionMode === "draft-neutral" || solidSelectionMode === "draft-faces" || solidSelectionMode === "shell-faces")) {
         const faceHit = meshHits()[0]; if (faceHit?.object instanceof THREE.Mesh) { hoveredFace = faceHit.object; const material = hoveredFace.material as THREE.MeshStandardMaterial; material.color.set(0xffd36a); material.opacity = Math.max(material.opacity, 0.22); }
       }
       renderer.domElement.style.cursor = arrowHovered ? "grab" : selectableSketchIds !== null || hoveredReference || hoveredAxis || hoveredOriginPlane || hoveredEdge || hoveredFace || referenceAxisPicking || referencePlanePicking || solidSelectionMode || sketchSupportPicking ? "pointer" : "";
@@ -739,6 +873,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     const onUp = (event: PointerEvent) => {
       if (finishArrowDrag(true) || finishChamferDrag(true) || finishReferencePlaneDrag(true)) return;
       if (sketchMode || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 4) return;
+      setNavigationPivot(event);
       pointRayAt(event);
       if (selectableSketchIds !== null) {
         const sketchHit = raycaster.intersectObjects(sketchLayer.children.filter((object) => object instanceof THREE.Line && object.userData.selectableSketch), false)[0];
@@ -761,7 +896,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       if (referenceHit?.object.userData.referenceId) {
         onSelectReference?.(referenceHit.object.userData.referenceId); return;
       }
-      if (!referencePlanePicking && solidSelectionMode !== "draft-neutral" && solidSelectionMode !== "draft-faces") {
+      if (!referencePlanePicking && solidSelectionMode !== "draft-neutral" && solidSelectionMode !== "draft-faces" && solidSelectionMode !== "shell-faces") {
         const edgeHit = visibleEdgeHit();
         if (edgeHit?.object.userData.edgeId) {
           onSelectEdge?.({ id: edgeHit.object.userData.edgeId, bodyId: edgeHit.object.userData.bodyId, edgeIndex: edgeHit.object.userData.edgeIndex, points: edgeHit.object.userData.points, linear: edgeHit.object.userData.linear, geometryType: edgeHit.object.userData.geometryType, axisOrigin: edgeHit.object.userData.axisOrigin, axisDirection: edgeHit.object.userData.axisDirection, axisKind: edgeHit.object.userData.axisKind }, event.shiftKey);
@@ -771,8 +906,16 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       }
       const hit = meshHits()[0]; setSelected((hit?.object as THREE.Mesh) ?? null, event.shiftKey);
     };
+    const onContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      if (sketchMode || Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) > 6) return;
+      const bounds = host.getBoundingClientRect(); viewMenu.style.left = `${Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - 205))}px`; viewMenu.style.top = `${Math.max(8, Math.min(event.clientY - bounds.top, bounds.height - 82))}px`; viewMenu.hidden = false;
+    };
+    const onWindowPointerDown = (event: PointerEvent) => { if (!viewMenu.contains(event.target as Node)) hideViewMenu(); };
+    const onWindowKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") hideViewMenu(); };
     const onCancel = () => { finishArrowDrag(false); finishChamferDrag(false); finishReferencePlaneDrag(false); };
     renderer.domElement.addEventListener("pointerdown", onDown); renderer.domElement.addEventListener("pointermove", onMove); renderer.domElement.addEventListener("pointerup", onUp); renderer.domElement.addEventListener("pointercancel", onCancel);
+    navigationElement.addEventListener("contextmenu", onContextMenu); window.addEventListener("pointerdown", onWindowPointerDown); window.addEventListener("keydown", onWindowKeyDown);
 
     const resize = new ResizeObserver(() => {
       const { width, height } = host.getBoundingClientRect(); const aspect = width / Math.max(height, 1); renderer.setSize(width, height, false);
@@ -780,14 +923,15 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       else if (aspect >= 520 / 360) { camera.left = -260; camera.right = 260; camera.top = 260 / aspect; camera.bottom = -260 / aspect; }
       else { camera.left = -180 * aspect; camera.right = 180 * aspect; camera.top = 180; camera.bottom = -180; }
       camera.updateProjectionMatrix();
+      controls.handleResize();
     });
     resize.observe(host);
-    let animation = 0; const render = () => { const pulse = 0.58 + Math.sin(performance.now() / 170) * 0.4; selectionPulseMaterials.forEach((material) => { material.opacity = pulse; }); controls.update(); renderer.render(scene, camera); animation = requestAnimationFrame(render); }; render();
+    let animation = 0; const render = () => { const now = performance.now(); const pulse = 0.58 + Math.sin(now / 170) * 0.4; selectionPulseMaterials.forEach((material) => { material.opacity = pulse; }); controls.update(); if (pivotIndicator.visible) { pivotIndicator.quaternion.copy(camera.quaternion); const scale = Math.max(1.1, camera.position.distanceTo(pivotIndicator.position) * 0.012); pivotIndicator.scale.setScalar(scale); if (now > pivotVisibleUntil) pivotIndicator.visible = false; } renderer.render(scene, camera); animation = requestAnimationFrame(render); }; render();
 
     return () => {
-      if (!sketchMode && camera instanceof THREE.PerspectiveCamera) savedViewRef.current = { position: camera.position.clone(), target: controls.target.clone(), up: camera.up.clone() };
+      if (!sketchMode && camera instanceof THREE.PerspectiveCamera) savedViewRef.current = { position: camera.position.clone(), target: controls.target.clone(), up: camera.up.clone(), quaternion: camera.quaternion.clone() };
       disposed = true; cancelAnimationFrame(animation); if (chamferPreviewFrame) cancelAnimationFrame(chamferPreviewFrame); chamferPreviewAbort?.abort(); resize.disconnect(); renderer.domElement.removeEventListener("pointerdown", onDown); renderer.domElement.removeEventListener("pointermove", onMove); renderer.domElement.removeEventListener("pointerup", onUp); renderer.domElement.removeEventListener("pointercancel", onCancel);
-      controls.removeEventListener("change", syncSketchView); controls.dispose(); navigationElement.removeEventListener("contextmenu", preventContextMenu);
+      controls.removeEventListener("change", syncSketchView); controls.dispose(); navigationElement.removeEventListener("contextmenu", onContextMenu); window.removeEventListener("pointerdown", onWindowPointerDown); window.removeEventListener("keydown", onWindowKeyDown); recenterButton.removeEventListener("click", centerViewOnOrigin); planarButton.removeEventListener("click", snapNearestPlanarView); viewMenu.remove();
       if (liveSketchGroupRef.current === liveSketchLayer) liveSketchGroupRef.current = null;
       if (sketchFrameRef.current === activeFrame) sketchFrameRef.current = null;
       scene.traverse((object) => { if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Line || object instanceof THREE.Points) { object.geometry.dispose(); (object.material as THREE.Material).dispose(); } });
