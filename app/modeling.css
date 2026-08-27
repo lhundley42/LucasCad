@@ -777,3 +777,17 @@
   top: -2px;
   border-top: 2px dashed #f6b94d;
 }
+
+.view-command-group { border-color:#314653; background:#141d24; }
+.view-command-group > b { color:#7fb6cc; }
+.view-command-group .tool { min-width:54px; }
+.view-command-group kbd { margin-left:4px; padding:1px 3px; border:1px solid #465866; border-radius:3px; color:#8297a6; font:8px monospace; }
+.fit-view-icon { display:grid !important; place-items:center; color:#73dcff; font-size:25px; line-height:1; }
+.feature-tree-block { display:contents; }
+.operation-body-row { padding-left:56px !important; border-left:1px dotted #30414e; }
+.operation-body-row .tree-support { margin-left:auto; color:#607484; font-size:9px; }
+.profile-warning-dialog { border-color:#8b6a2d; }
+.profile-warning-dialog .validation-mark { border-color:#bd8b32; background:#3a2b15; color:#ffd378; }
+.profile-warning-dialog ul { color:#ffd995; }
+.rename-dialog { width:min(360px,calc(100vw - 30px)); }
+.feature-context-menu { max-height:calc(100vh - 16px); overflow:auto; }

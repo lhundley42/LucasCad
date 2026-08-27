@@ -515,3 +515,20 @@ test("3D viewport rebuilds the document and displays unconsumed sketches", async
   assert.match(viewport, /depthTest: false/);
   assert.match(viewport, /onSelectFace/);
 });
+
+test("model usability pass preserves rebuild context and exposes fit, naming, and consumed visibility", async () => {
+  const [page, viewport, css] = await Promise.all([source("app/page.tsx"), source("app/components/CadViewport.tsx"), source("app/modeling.css")]);
+  assert.match(page, /aria-label="Fit model to view"/);
+  assert.match(page, /event\.key\.toLowerCase\(\) !== "f"/);
+  assert.match(page, /features\.filter\(\(feature\) => feature\.type === featureDraft\.type/);
+  assert.match(page, /visible: false/);
+  assert.match(page, /Rename resulting body/);
+  assert.match(page, /operation-body-row/);
+  assert.match(page, /Math\.min\(event\.clientY, window\.innerHeight/);
+  assert.match(page, /formatLength\(feature\.thickness/);
+  assert.match(viewport, /viewport-rebuild-snapshot/);
+  assert.match(viewport, /describeRebuildFailure/);
+  assert.match(viewport, /fitModelToView/);
+  assert.match(viewport, /camera\.up\.copy\(activeFrame\.yDir\);/);
+  assert.match(css, /\.operation-body-row/);
+});

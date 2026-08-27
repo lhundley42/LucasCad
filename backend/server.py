@@ -449,14 +449,18 @@ def analyze_sketch_entities(entities: list[dict]) -> dict:
     closed_primitives = 0
     drawable = [entity for entity in entities if not entity.get("construction")]
     issues = []
+    warnings = []
     for index, entity in enumerate(drawable, start=1):
         entity_type = entity.get("type")
         try:
             if entity_type == "line":
-                if point_distance(entity["a"], entity["b"]) < 1e-5:
+                length = point_distance(entity["a"], entity["b"])
+                if length < 1e-5:
                     issues.append(f"Line {index} has zero length; move or delete it.")
                 else:
                     endpoints.extend([entity["a"], entity["b"]])
+                    if length < 0.05:
+                        warnings.append(f"Line {index} is extremely short and may collapse during a solid rebuild.")
             elif entity_type == "arc":
                 if point_distance(entity["a"], entity["b"]) < 1e-5:
                     issues.append(f"Arc {index} has coincident start and end points.")
@@ -493,6 +497,17 @@ def analyze_sketch_entities(entities: list[dict]) -> dict:
         else:
             groups.append({"point": {"x": float(point["x"]), "y": float(point["y"])}, "count": 1})
     open_endpoints = [group["point"] for group in groups if group["count"] % 2 == 1]
+    crowded_junctions = [group for group in groups if group["count"] > 2]
+    if crowded_junctions:
+        warnings.append(f"{len(crowded_junctions)} endpoint junction{'s' if len(crowded_junctions) != 1 else ''} connect more than two segments. This can create zero-thickness or branching contours.")
+    for first_index, first in enumerate(groups):
+        for second in groups[first_index + 1:]:
+            separation = point_distance(first["point"], second["point"])
+            if 1e-5 < separation < 0.02:
+                warnings.append("Two endpoints are nearly coincident but not connected; the resulting sliver may fail during extrusion.")
+                break
+        if warnings and warnings[-1].startswith("Two endpoints"):
+            break
     if not drawable:
         issues.append("The sketch contains no profile geometry.")
     if open_endpoints:
@@ -504,7 +519,7 @@ def analyze_sketch_entities(entities: list[dict]) -> dict:
             profile_count = len(wires)
         except Exception as error:
             issues.append(str(error))
-    return {"closed": not issues and profile_count > 0, "profileCount": profile_count, "openEndpoints": open_endpoints, "issues": issues}
+    return {"closed": not issues and profile_count > 0, "profileCount": profile_count, "openEndpoints": open_endpoints, "issues": issues, "warnings": warnings}
 
 
 def plane_for_sketch(sketch: dict, bodies: dict[str, cq.Shape], references: dict[str, dict] | None = None) -> cq.Plane:

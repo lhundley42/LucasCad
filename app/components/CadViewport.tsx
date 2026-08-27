@@ -33,7 +33,7 @@ export type RevolveAxisReference =
   | { kind: "reference-axis"; referenceId: string; label: string };
 export type ChamferMethod = "symmetric" | "angle-distance" | "distance-distance";
 export type ChamferParameter = "distance" | "distance2" | "angle";
-export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; combine?: "new" | "union" | "cut"; bodyId?: string; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; thickness?: number; outward?: boolean; visible?: boolean };
+export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; combine?: "new" | "union" | "cut"; bodyId?: string; bodyName?: string; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; thickness?: number; outward?: boolean; visible?: boolean };
 export type DocumentRequest = { sketches: SketchRecord[]; features: FeatureRecord[]; referenceGeometry?: ReferenceGeometryRecord[] };
 export type SelectedFace = AxisSelectionMetadata & { id: string; bodyId: string; faceIndex: number; center?: VectorTuple; normal?: VectorTuple; planar?: boolean };
 export type SelectedEdge = AxisSelectionMetadata & { id: string; bodyId: string; edgeIndex: number; points?: VectorTuple[]; linear?: boolean };
@@ -141,6 +141,7 @@ type Props = {
   editingSketch?: { id: string; entities: SketchEntity[] } | null;
   sketchView?: SketchView;
   snapNormalRequest?: number;
+  fitViewRequest?: number;
   sketchSupportPicking?: boolean;
   featurePreview?: FeaturePreview | null;
   selectedBodyId?: string | null;
@@ -179,6 +180,15 @@ type Props = {
 type WorldSketchFrame = { origin: THREE.Vector3; xDir: THREE.Vector3; yDir: THREE.Vector3; normal: THREE.Vector3 };
 const API = typeof window === "undefined" ? "http://127.0.0.1:4311" : `${window.location.protocol}//${window.location.hostname}:4311`;
 const ORIGIN_PLANE_COLORS = { XY: 0x3b82f6, XZ: 0x22c55e, YZ: 0xef4444 } as const;
+
+export function describeRebuildFailure(message: string) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("zero") || normalized.includes("thin")) return `${message} Likely cause: zero-thickness or nearly coincident geometry. Separate touching contours or increase the smallest feature.`;
+  if (normalized.includes("closed profile") || normalized.includes("open profile") || normalized.includes("wire")) return `${message} Likely cause: an open, overlapping, or self-intersecting sketch contour. Run SketchCheck and repair the highlighted endpoints.`;
+  if (normalized.includes("intersect") || normalized.includes("union") || normalized.includes("cut")) return `${message} Likely cause: the tool body does not overlap the target in the selected direction or distance.`;
+  if (normalized.includes("could not be created") || normalized.includes("command not done") || normalized.includes("valid solid")) return `${message} Likely cause: a radius, wall, draft, or narrow corner exceeds the available material. Reduce the value or simplify the selected region.`;
+  return `${message} Check the latest feature's references, direction, and dimensions; the last valid model is still shown.`;
+}
 
 function disposeSketchGroup(group: THREE.Group) {
   for (const child of [...group.children]) {
@@ -260,14 +270,18 @@ function addOriginPlane(scene: THREE.Scene, plane: "XY" | "XZ" | "YZ", size: num
   return planeMesh;
 }
 
-export function CadViewport({ document, editingSketchId = null, editingSketch = null, sketchView, snapNormalRequest = 0, sketchSupportPicking = false, featurePreview = null, selectedBodyId = null, selectedEdgeIds = [], selectedFaceIds = [], solidSelectionMode = null, selectedPlane = null, showModelGrid = true, originCsyVisible = true, originPlanesVisible = { XY: false, XZ: false, YZ: false }, highlightedSketchId = null, selectableSketchIds = null, revolveAxisPicking = false, selectedRevolveAxis = null, highlightedFeatureId = null, selectedReferenceId = null, referencePlanePicking = false, referenceAxisPicking = false, referencePlanePreview = null, onSketchViewChange, onSketchRotatedChange, onExternalReferencesChange, onSelectSketch, onSelectPlane, onSelectRevolveAxis, onSelectReferencePlane, onSelectReference, onReferencePlaneOffsetChange, onFeaturePreviewDistanceChange, onChamferPreviewParameterChange, onSelectEdge, onSelectFace, onStatus }: Props) {
+export function CadViewport({ document, editingSketchId = null, editingSketch = null, sketchView, snapNormalRequest = 0, fitViewRequest = 0, sketchSupportPicking = false, featurePreview = null, selectedBodyId = null, selectedEdgeIds = [], selectedFaceIds = [], solidSelectionMode = null, selectedPlane = null, showModelGrid = true, originCsyVisible = true, originPlanesVisible = { XY: false, XZ: false, YZ: false }, highlightedSketchId = null, selectableSketchIds = null, revolveAxisPicking = false, selectedRevolveAxis = null, highlightedFeatureId = null, selectedReferenceId = null, referencePlanePicking = false, referenceAxisPicking = false, referencePlanePreview = null, onSketchViewChange, onSketchRotatedChange, onExternalReferencesChange, onSelectSketch, onSelectPlane, onSelectRevolveAxis, onSelectReferencePlane, onSelectReference, onReferencePlaneOffsetChange, onFeaturePreviewDistanceChange, onChamferPreviewParameterChange, onSelectEdge, onSelectFace, onStatus }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const savedViewRef = useRef<SavedView | null>(null);
+  const rebuildSnapshotRef = useRef<HTMLImageElement | null>(null);
+  const lastFitViewRequestRef = useRef(fitViewRequest);
+  const lastFramedDocumentKeyRef = useRef("");
   const liveSketchGroupRef = useRef<THREE.Group | null>(null);
   const sketchFrameRef = useRef<WorldSketchFrame | null>(null);
   const editingEntitiesRef = useRef<SketchEntity[]>(editingSketch?.entities ?? []);
   const sketchViewRef = useRef<SketchView>(sketchView ?? { center: { x: 0, y: 0 }, zoom: 1 });
   const documentRequestKey = JSON.stringify(featurePreview ? { ...document, previewFeature: featurePreview } : document);
+  const baseDocumentKey = JSON.stringify(document);
   const editingGeometryKey = JSON.stringify(editingSketch?.entities ?? []);
   const highlightedFeature = document.features.find((feature) => feature.id === highlightedFeatureId);
   const highlightedFeatureBodyId = highlightedFeature?.bodyId ?? highlightedFeature?.targetBodyId ?? null;
@@ -306,9 +320,11 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       if (saved?.quaternion) camera.quaternion.copy(saved.quaternion);
     }
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.domElement.style.opacity = rebuildSnapshotRef.current ? "0" : "1";
+    renderer.domElement.style.transition = "opacity 90ms linear";
     host.appendChild(renderer.domElement);
 
     const sketchCanvas = sketchMode ? host.parentElement?.querySelector(".sketch-canvas") : null;
@@ -334,6 +350,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     scene.add(model, selectableEdges, selectedFaceOverlay, sketchLayer, liveSketchLayer, previewLayer, pivotIndicator);
     let selected: THREE.Mesh | null = null;
     let disposed = false;
+    let hasValidFrame = false;
     let activeFrame: WorldSketchFrame | null = null;
     let draftNeutralNormal: THREE.Vector3 | null = null;
     let lastRotated: boolean | null = null;
@@ -445,6 +462,25 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       }
     };
     controls.addEventListener("change", syncSketchView);
+
+    const fitModelToView = (data: DocumentPayload) => {
+      if (sketchMode || !(camera instanceof THREE.PerspectiveCamera) || !data.faces.length) return;
+      const points = data.faces.flatMap((face) => face.vertices.map((point) => new THREE.Vector3(...point)));
+      if (!points.length) return;
+      const box = new THREE.Box3().setFromPoints(points);
+      const center = box.getCenter(new THREE.Vector3());
+      const radius = Math.max(box.getSize(new THREE.Vector3()).length() * 0.5, 1);
+      const direction = camera.position.clone().sub(controls.target);
+      if (direction.lengthSq() < 1e-8) direction.set(1, -1, 0.8);
+      direction.normalize();
+      const verticalDistance = radius / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+      const aspectDistance = verticalDistance / Math.max(Math.min(camera.aspect, 1), 0.35);
+      controls.target.copy(center);
+      camera.position.copy(center).addScaledVector(direction, aspectDistance * 1.22);
+      camera.lookAt(center);
+      camera.updateProjectionMatrix();
+      controls.update();
+    };
 
     async function loadDocument() {
       onStatus("connecting");
@@ -642,7 +678,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
             const initialView = sketchViewRef.current;
             const target = activeFrame.origin.clone().addScaledVector(activeFrame.xDir, initialView.center.x).addScaledVector(activeFrame.yDir, initialView.center.y);
             camera.position.copy(target).addScaledVector(activeFrame.normal, -1000);
-            camera.up.copy(activeFrame.yDir).multiplyScalar(-1);
+            camera.up.copy(activeFrame.yDir);
             camera.lookAt(target);
             camera.zoom = Math.max(0.05, Math.min(40, initialView.zoom));
             controls.target.copy(target);
@@ -655,10 +691,25 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
           camera.position.set(size * 1.5, -size * 1.7, size * 1.25);
           camera.lookAt(controls.target);
         }
+        const explicitFit = fitViewRequest !== lastFitViewRequestRef.current;
+        const rebuiltDocument = !featurePreview && baseDocumentKey !== lastFramedDocumentKeyRef.current;
+        if (!sketchMode && (explicitFit || rebuiltDocument)) {
+          fitModelToView(data);
+          lastFitViewRequestRef.current = fitViewRequest;
+          if (!featurePreview) lastFramedDocumentKeyRef.current = baseDocumentKey;
+        }
         camera.near = Math.max(0.01, size / 1000); camera.far = Math.max(10000, size * 100); camera.updateProjectionMatrix(); controls.update(); syncSketchView();
+        renderer.render(scene, camera);
+        hasValidFrame = true;
+        renderer.domElement.style.opacity = "1";
+        rebuildSnapshotRef.current?.remove(); rebuildSnapshotRef.current = null;
         onStatus("ready", data.properties);
       } catch (error) {
-        if (!disposed) onStatus(error instanceof TypeError ? "offline" : "error", undefined, error instanceof Error ? error.message : "Document rebuild failed");
+        if (!disposed) {
+          renderer.domElement.style.opacity = rebuildSnapshotRef.current ? "0" : "1";
+          const message = error instanceof Error ? error.message : "Document rebuild failed";
+          onStatus(error instanceof TypeError ? "offline" : "error", undefined, describeRebuildFailure(message));
+        }
       }
     }
     loadDocument();
@@ -930,6 +981,12 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
 
     return () => {
       if (!sketchMode && camera instanceof THREE.PerspectiveCamera) savedViewRef.current = { position: camera.position.clone(), target: controls.target.clone(), up: camera.up.clone(), quaternion: camera.quaternion.clone() };
+      if (!sketchMode && hasValidFrame && renderer.domElement.width > 0 && renderer.domElement.height > 0) {
+        try {
+          const snapshot = new Image(); snapshot.src = renderer.domElement.toDataURL("image/png"); snapshot.className = "viewport-rebuild-snapshot"; snapshot.alt = "Last valid model while rebuilding";
+          rebuildSnapshotRef.current?.remove(); rebuildSnapshotRef.current = snapshot; host.appendChild(snapshot);
+        } catch { /* A live model remains usable when a browser cannot snapshot WebGL. */ }
+      }
       disposed = true; cancelAnimationFrame(animation); if (chamferPreviewFrame) cancelAnimationFrame(chamferPreviewFrame); chamferPreviewAbort?.abort(); resize.disconnect(); renderer.domElement.removeEventListener("pointerdown", onDown); renderer.domElement.removeEventListener("pointermove", onMove); renderer.domElement.removeEventListener("pointerup", onUp); renderer.domElement.removeEventListener("pointercancel", onCancel);
       controls.removeEventListener("change", syncSketchView); controls.dispose(); navigationElement.removeEventListener("contextmenu", onContextMenu); window.removeEventListener("pointerdown", onWindowPointerDown); window.removeEventListener("keydown", onWindowKeyDown); recenterButton.removeEventListener("click", centerViewOnOrigin); planarButton.removeEventListener("click", snapNearestPlanarView); viewMenu.remove();
       if (liveSketchGroupRef.current === liveSketchLayer) liveSketchGroupRef.current = null;
@@ -937,7 +994,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       scene.traverse((object) => { if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Line || object instanceof THREE.Points) { object.geometry.dispose(); (object.material as THREE.Material).dispose(); } });
       renderer.dispose(); renderer.domElement.remove();
     };
-  }, [documentRequestKey, editingSketchId, featurePreview, hiddenBodyKey, highlightedFeatureBodyId, highlightedFeatureSketchId, highlightedSketchId, selectableSketchKey, selectedEdgeKey, selectedFaceKey, sketchSupportPicking, solidSelectionMode, selectedPlane, showModelGrid, originCsyVisible, originPlanesVisible, snapNormalRequest, selectedBodyId, selectedReferenceId, referenceAxisPicking, referencePlanePicking, referencePlanePreviewKey, revolveAxisPicking, revolveAxisKey, onChamferPreviewParameterChange, onExternalReferencesChange, onFeaturePreviewDistanceChange, onReferencePlaneOffsetChange, onSelectEdge, onSelectFace, onSelectPlane, onSelectReference, onSelectReferencePlane, onSelectRevolveAxis, onSelectSketch, onSketchRotatedChange, onSketchViewChange, onStatus]);
+  }, [baseDocumentKey, documentRequestKey, editingSketchId, featurePreview, fitViewRequest, hiddenBodyKey, highlightedFeatureBodyId, highlightedFeatureSketchId, highlightedSketchId, selectableSketchKey, selectedEdgeKey, selectedFaceKey, sketchSupportPicking, solidSelectionMode, selectedPlane, showModelGrid, originCsyVisible, originPlanesVisible, snapNormalRequest, selectedBodyId, selectedReferenceId, referenceAxisPicking, referencePlanePicking, referencePlanePreviewKey, revolveAxisPicking, revolveAxisKey, onChamferPreviewParameterChange, onExternalReferencesChange, onFeaturePreviewDistanceChange, onReferencePlaneOffsetChange, onSelectEdge, onSelectFace, onSelectPlane, onSelectReference, onSelectReferencePlane, onSelectRevolveAxis, onSelectSketch, onSketchRotatedChange, onSketchViewChange, onStatus]);
 
   return <div ref={hostRef} className={`webgl-host ${selectableSketchIds !== null ? "sketch-profile-picking" : ""} ${referencePlanePicking ? "reference-plane-picking" : ""} ${referenceAxisPicking ? "reference-axis-picking" : ""} ${revolveAxisPicking ? "revolve-axis-picking" : ""} ${solidSelectionMode ? `solid-${solidSelectionMode}` : ""}`} />;
 }

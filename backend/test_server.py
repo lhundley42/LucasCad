@@ -265,6 +265,20 @@ def test_sketch_validation_reports_degenerate_geometry_without_crashing():
     assert "zero length" in result.json()["issues"][0]
 
 
+def test_sketch_validation_warns_about_branching_zero_thickness_junctions():
+    entities = [
+        {"id": "a", "type": "line", "a": {"x": 0, "y": 0}, "b": {"x": 10, "y": 0}},
+        {"id": "b", "type": "line", "a": {"x": 10, "y": 0}, "b": {"x": 10, "y": 10}},
+        {"id": "c", "type": "line", "a": {"x": 10, "y": 10}, "b": {"x": 0, "y": 10}},
+        {"id": "d", "type": "line", "a": {"x": 0, "y": 10}, "b": {"x": 0, "y": 0}},
+        {"id": "branch-1", "type": "line", "a": {"x": 0, "y": 0}, "b": {"x": -5, "y": -5}},
+        {"id": "branch-2", "type": "line", "a": {"x": -5, "y": -5}, "b": {"x": 0, "y": 0}},
+    ]
+    result = client.post("/api/sketch/validate", json={"entities": entities})
+    assert result.status_code == 200
+    assert any("zero-thickness" in warning for warning in result.json()["warnings"])
+
+
 def test_document_replays_new_body_and_cut_feature():
     document = {
         "sketches": [

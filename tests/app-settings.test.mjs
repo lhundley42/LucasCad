@@ -26,4 +26,6 @@ test("metric and imperial display preserve millimeter model values", () => {
   assert.equal(toMillimeters(1, "imperial"), 25.4);
   assert.equal(formatLength(25.4, "imperial"), "1 in");
   assert.equal(formatLength(25.4, "metric"), "25.4 mm");
+  assert.equal(formatLength(3.0479999999999996, "metric"), "3.05 mm");
+  assert.equal(formatLength(3.0479999999999996, "imperial"), "0.12 in");
 });
