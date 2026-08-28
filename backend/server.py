@@ -400,6 +400,7 @@ def apply_body_feature(body: cq.Shape, feature: dict) -> cq.Shape:
         if unsupported_faces:
             result = make_full_profile_draft(body, neutral_face, draft_faces, angle, bool(feature.get("reverse")))
         else:
+            full_profile_selected = faces_cover_neutral_boundary(neutral_face, draft_faces)
             normal = neutral_face.normalAt().normalized()
             if feature.get("reverse"):
                 normal = normal.multiply(-1)
@@ -417,9 +418,15 @@ def apply_body_feature(body: cq.Shape, feature: dict) -> cq.Shape:
                     raise ValueError("The selected faces and angle did not create a valid draft.")
                 result = cq.Shape.cast(builder.Shape())
             except ValueError:
-                raise
+                if not full_profile_selected:
+                    raise
+                result = make_full_profile_draft(body, neutral_face, draft_faces, angle, bool(feature.get("reverse")))
             except Exception as error:
-                raise ValueError("The draft could not be created. Reduce the angle or select different faces.") from error
+                if not full_profile_selected:
+                    raise ValueError("The draft could not be created. Reduce the angle or select different faces.") from error
+                result = make_full_profile_draft(body, neutral_face, draft_faces, angle, bool(feature.get("reverse")))
+            if (not result.isValid() or not result.Solids()) and full_profile_selected:
+                result = make_full_profile_draft(body, neutral_face, draft_faces, angle, bool(feature.get("reverse")))
     elif operation == "shell":
         removed_faces = indexed_items(body.Faces(), feature.get("faceIndices") or [], "face to remove")
         thickness = abs(float(feature.get("thickness", 2)))
@@ -906,3 +913,50 @@ def export_document(payload: dict = Body(...)) -> Response:
     finally:
         path.unlink(missing_ok=True)
     return Response(content=content, media_type="model/step", headers={"Content-Disposition": 'attachment; filename="lucascad-document.step"'})
+
+
+def export_document_bodies(payload: dict) -> dict[str, cq.Shape]:
+    try:
+        bodies, _, _ = build_document(payload)
+        if not bodies:
+            raise ValueError("The document does not contain any solid bodies to export.")
+        return bodies
+    except (ValueError, TypeError, KeyError, RuntimeError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/export/document.stl")
+def export_document_stl(payload: dict = Body(...)) -> Response:
+    bodies = export_document_bodies(payload)
+    shape = cq.Compound.makeCompound(list(bodies.values()))
+    with NamedTemporaryFile(suffix=".stl", delete=False) as handle:
+        path = Path(handle.name)
+    try:
+        cq.exporters.export(shape, str(path), exportType="STL", tolerance=0.05, angularTolerance=0.1)
+        content = path.read_bytes()
+    finally:
+        path.unlink(missing_ok=True)
+    return Response(content=content, media_type="model/stl", headers={"Content-Disposition": 'attachment; filename="lucascad-document.stl"'})
+
+
+def obj_safe_name(value: str) -> str:
+    cleaned = "".join(character if character.isalnum() or character in "-_" else "_" for character in value.strip())
+    return cleaned or "body"
+
+
+def document_obj_bytes(bodies: dict[str, cq.Shape]) -> bytes:
+    lines = ["# LucasCad Wavefront OBJ", "# Units: millimeters", "s 1"]
+    vertex_offset = 1
+    for body_id, shape in bodies.items():
+        vertices, triangles = shape.tessellate(0.05, 0.1)
+        lines.append(f"o {obj_safe_name(body_id)}")
+        lines.extend(f"v {point.x:.9g} {point.y:.9g} {point.z:.9g}" for point in vertices)
+        lines.extend(f"f {first + vertex_offset} {second + vertex_offset} {third + vertex_offset}" for first, second, third in triangles)
+        vertex_offset += len(vertices)
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+@app.post("/api/export/document.obj")
+def export_document_obj(payload: dict = Body(...)) -> Response:
+    content = document_obj_bytes(export_document_bodies(payload))
+    return Response(content=content, media_type="model/obj", headers={"Content-Disposition": 'attachment; filename="lucascad-document.obj"'})

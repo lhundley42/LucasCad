@@ -51,6 +51,21 @@ export const nearestGridVertex = (point: Point, spacing: number): Point => {
 };
 
 /**
+ * Visible sketch geometry takes precedence over the background grid whenever
+ * it is inside the snap aperture. This keeps a nearby grid vertex from stealing
+ * an endpoint drop that the cursor is clearly indicating.
+ */
+export function preferredSketchSnap<T extends { point: Point }>(raw: Point, geometryCandidates: T[], snapTolerance: number, gridFallback: T): T {
+  let best: T | null = null;
+  let bestDistance = snapTolerance;
+  for (const candidate of geometryCandidates) {
+    const candidateDistance = distance(raw, candidate.point);
+    if (candidateDistance <= bestDistance) { best = candidate; bestDistance = candidateDistance; }
+  }
+  return best ?? gridFallback;
+}
+
+/**
  * Finds the same unpaired sketch endpoints that prevent the modeling kernel
  * from creating a wire. The repair set is the graph's non-cyclic fringe: it
  * trims dangling branches but preserves every closed contour core.
@@ -425,6 +440,69 @@ export function cornerLines(
   const nextSecond = lineToCorner(second, secondClick, corner);
   if (distance(nextFirst.a, nextFirst.b) < EPSILON || distance(nextSecond.a, nextSecond.b) < EPSILON) return null;
   return [nextFirst, nextSecond];
+}
+
+export type SketchFilletResult = {
+  first: Extract<SketchEntity, { type: "line" }>;
+  second: Extract<SketchEntity, { type: "line" }>;
+  arc: Extract<SketchEntity, { type: "arc" }>;
+};
+
+/**
+ * Creates a tangent, constant-radius sketch fillet between the two line rays
+ * selected by the user. The clicked side of each line is preserved, matching
+ * the side-selection behavior of the Corner tool.
+ */
+export function filletLines(
+  first: Extract<SketchEntity, { type: "line" }>,
+  firstClick: Point,
+  second: Extract<SketchEntity, { type: "line" }>,
+  secondClick: Point,
+  radius: number,
+  arcId: string,
+): SketchFilletResult | null {
+  if (first.id === second.id || !(radius > EPSILON)) return null;
+  const corner = infiniteLineIntersection(first, second);
+  if (!corner) return null;
+  const ray = (click: Point, line: Extract<SketchEntity, { type: "line" }>) => {
+    let dx = click.x - corner.x; let dy = click.y - corner.y;
+    if (Math.hypot(dx, dy) < EPSILON) {
+      const aDistance = distance(line.a, corner); const bDistance = distance(line.b, corner);
+      const far = aDistance >= bDistance ? line.a : line.b; dx = far.x - corner.x; dy = far.y - corner.y;
+    }
+    const length = Math.hypot(dx, dy);
+    return length > EPSILON ? { x: dx / length, y: dy / length } : null;
+  };
+  const firstRay = ray(firstClick, first); const secondRay = ray(secondClick, second);
+  if (!firstRay || !secondRay) return null;
+  const dot = Math.max(-1, Math.min(1, firstRay.x * secondRay.x + firstRay.y * secondRay.y));
+  const angle = Math.acos(dot);
+  if (angle < 1e-4 || Math.PI - angle < 1e-4) return null;
+  const tangentDistance = radius / Math.tan(angle / 2);
+  const centerDistance = radius / Math.sin(angle / 2);
+  const bisector = { x: firstRay.x + secondRay.x, y: firstRay.y + secondRay.y };
+  const bisectorLength = Math.hypot(bisector.x, bisector.y);
+  if (bisectorLength < EPSILON || !Number.isFinite(tangentDistance) || !Number.isFinite(centerDistance)) return null;
+  const firstTangent = { x: corner.x + firstRay.x * tangentDistance, y: corner.y + firstRay.y * tangentDistance };
+  const secondTangent = { x: corner.x + secondRay.x * tangentDistance, y: corner.y + secondRay.y * tangentDistance };
+  const center = { x: corner.x + bisector.x / bisectorLength * centerDistance, y: corner.y + bisector.y / bisectorLength * centerDistance };
+  const towardCorner = { x: corner.x - center.x, y: corner.y - center.y };
+  const towardCornerLength = Math.max(Math.hypot(towardCorner.x, towardCorner.y), EPSILON);
+  const through = { x: center.x + towardCorner.x / towardCornerLength * radius, y: center.y + towardCorner.y / towardCornerLength * radius };
+  const trimTo = (line: Extract<SketchEntity, { type: "line" }>, direction: Point, tangent: Point) => {
+    const aAmount = (line.a.x - corner.x) * direction.x + (line.a.y - corner.y) * direction.y;
+    const bAmount = (line.b.x - corner.x) * direction.x + (line.b.y - corner.y) * direction.y;
+    const relations = [...new Set([...(line.relations ?? []).filter((relation) => relation !== "Corner"), "Tangent"])] as string[];
+    return aAmount >= bAmount ? { ...line, b: tangent, relations } : { ...line, a: tangent, relations };
+  };
+  const nextFirst = trimTo(first, firstRay, firstTangent);
+  const nextSecond = trimTo(second, secondRay, secondTangent);
+  if (distance(nextFirst.a, nextFirst.b) < EPSILON || distance(nextSecond.a, nextSecond.b) < EPSILON) return null;
+  return {
+    first: nextFirst,
+    second: nextSecond,
+    arc: { id: arcId, type: "arc", a: firstTangent, b: secondTangent, through, relations: ["Tangent", "Fillet"] },
+  };
 }
 
 function signedDistanceToInfiniteLine(point: Point, line: Extract<SketchEntity, { type: "line" }>) {

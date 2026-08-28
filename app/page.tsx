@@ -2,14 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CadViewport, type ChamferMethod, type ChamferParameter, type DocumentRequest, type FeaturePreview, type FeatureRecord, type ReferenceAxisRecord, type ReferenceGeometryRecord, type ReferencePlaneRecord, type RevolveAxisReference, type SelectedEdge, type SelectedFace, type SketchPlane, type SketchRecord, type SolidSelectionMode } from "./components/CadViewport";
-import { Sketcher, type ExternalSketchReference, type SketchConstraint, type SketchEntity, type SketchView } from "./components/Sketcher";
+import { Sketcher, type ExternalSketchReference, type SketchConstraint, type SketchEntity, type SketchInitialTool, type SketchView } from "./components/Sketcher";
 import type { PatternCenterReference, PatternDirectionReference, SketchReference } from "./components/sketchConstraints";
 import { DEFAULT_GLOBAL_SETTINGS, GLOBAL_SETTINGS_STORAGE_KEY, parseGlobalSettings, type GlobalAppSettings } from "./components/appSettings";
 import { formatLength, fromMillimeters, toMillimeters, unitSuffix, type UnitSystem } from "./components/units";
 import { BufferedNumberInput, keyboardEventOwnedByControl } from "./components/BufferedNumberInput";
+import { normalizeLucasCadFileName, parseLucasCadProject, serializeLucasCadProject } from "./components/projectFile";
 
 type LocalSketch = Omit<SketchRecord, "entities"> & { entities: SketchEntity[]; constraints?: SketchConstraint[]; dimensionOffsets?: Record<string, { x: number; y: number }> };
 type KernelStatus = "idle" | "connecting" | "ready" | "offline" | "error";
+type ExportFormat = "step" | "stl" | "obj";
+type WritableProjectFile = { write: (data: string | Blob) => Promise<void>; close: () => Promise<void> };
+type ProjectFileHandle = { name: string; getFile: () => Promise<File>; createWritable: () => Promise<WritableProjectFile> };
+type ProjectPickerWindow = Window & {
+  showOpenFilePicker?: (options?: Record<string, unknown>) => Promise<ProjectFileHandle[]>;
+  showSaveFilePicker?: (options?: Record<string, unknown>) => Promise<ProjectFileHandle>;
+};
 type Properties = { valid: boolean; solidCount: number; bodyCount: number; faceCount: number; edgeCount: number; volume: number; bounds: { x: number; y: number; z: number } };
 type FeatureDraft = { type: "extrude" | "revolve"; sketchId: string; combine: "new" | "union" | "cut"; targetBodyId: string; extent: "one-sided" | "symmetric" | "bidirectional"; distance: number; distancePlus: number; distanceMinus: number; direction: 1 | -1; angle: number; axis: FeatureRecord["axis"] | null };
 type BodyFeatureDraft =
@@ -48,7 +56,7 @@ const flipSketchConstraint = (constraint: SketchConstraint): SketchConstraint =>
   if (constraint.type === "linear-pattern") return { ...constraint, direction1: flipPatternDirection(constraint.direction1), direction2: constraint.direction2 ? flipPatternDirection(constraint.direction2) : undefined };
   if (constraint.type === "rectangular-pattern") return { ...constraint, direction1: flipPatternDirection(constraint.direction1), direction2: flipPatternDirection(constraint.direction2) };
   if (constraint.type === "circular-pattern") return { ...constraint, center: flipPatternCenter(constraint.center), reverse: !constraint.reverse };
-  if (constraint.type === "diameter") return { ...constraint, position: flipPoint(constraint.position) };
+  if (constraint.type === "diameter" || constraint.type === "radial") return { ...constraint, position: flipPoint(constraint.position) };
   if (constraint.type === "angular") return { ...constraint, first: flipSketchReference(constraint.first) as typeof constraint.first, second: flipSketchReference(constraint.second) as typeof constraint.second, position: flipPoint(constraint.position) };
   return { ...constraint, first: flipSketchReference(constraint.first), second: flipSketchReference(constraint.second), position: flipPoint(constraint.position) };
 };
@@ -69,6 +77,7 @@ export default function Home() {
   const [editingReferenceId, setEditingReferenceId] = useState<string | null>(null);
   const [selectedReferenceId, setSelectedReferenceId] = useState<string | null>(null);
   const [editingSketchId, setEditingSketchId] = useState<string | null>(null);
+  const [sketchInitialTool, setSketchInitialTool] = useState<SketchInitialTool>("select");
   const [sketchViewDocument, setSketchViewDocument] = useState<DocumentRequest | null>(null);
   const [sketchView, setSketchView] = useState<SketchView>(defaultSketchView);
   const [sketchViewRotated, setSketchViewRotated] = useState(false);
@@ -98,6 +107,9 @@ export default function Home() {
   const [properties, setProperties] = useState<Properties | null>(null);
   const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [projectFileName, setProjectFileName] = useState("Untitled Part");
+  const [projectFileError, setProjectFileError] = useState<{ title: string; message: string } | null>(null);
   const [globalSettings, setGlobalSettings] = useState<GlobalAppSettings>(DEFAULT_GLOBAL_SETTINGS);
   const [externalSketchReferences, setExternalSketchReferences] = useState<ExternalSketchReference[]>([]);
   const [showModelGrid, setShowModelGrid] = useState(true);
@@ -107,6 +119,8 @@ export default function Home() {
   const [liveChamferDrag, setLiveChamferDrag] = useState<{ parameter: ChamferParameter; value: number } | null>(null);
   const [livePlaneOffset, setLivePlaneOffset] = useState<number | null>(null);
   const [fitViewRequest, setFitViewRequest] = useState(0);
+  const projectFileHandleRef = useRef<ProjectFileHandle | null>(null);
+  const projectFileInputRef = useRef<HTMLInputElement>(null);
   const sketchSupportVisibilityRef = useRef<{ referenceId?: string; referenceVisible?: boolean; originPlane?: keyof OriginPlaneVisibility; originVisible?: boolean } | null>(null);
 
   const cadDocument = useMemo<DocumentRequest>(() => ({ sketches, features, referenceGeometry }), [features, referenceGeometry, sketches]);
@@ -173,7 +187,7 @@ export default function Home() {
     const id = `sketch-${crypto.randomUUID()}`;
     const sketch: LocalSketch = { id, name: `Sketch ${sketches.length + 1}`, plane, entities: [], visible: true };
     const nextSketches = [...sketches, sketch];
-    setSketches(nextSketches); setSketchViewDocument({ sketches: nextSketches, features, referenceGeometry }); setSketchView(defaultSketchView()); setSketchViewRotated(false); setSelectedSketchId(id); setSelectedFeatureId(null); setSelectedPlane(null); setSketchSupportPicking(false); if (typeof plane !== "string" && plane.kind === "face") setSelectedBodyId(plane.bodyId); else setSelectedBodyId(null); setEditingSketchId(id); setPlaneDialog(null);
+    setSketches(nextSketches); setSketchViewDocument({ sketches: nextSketches, features, referenceGeometry }); setSketchView(defaultSketchView()); setSketchViewRotated(false); setSelectedSketchId(id); setSelectedFeatureId(null); setSelectedPlane(null); setSketchSupportPicking(false); if (typeof plane !== "string" && plane.kind === "face") setSelectedBodyId(plane.bodyId); else setSelectedBodyId(null); setSketchInitialTool("select"); setEditingSketchId(id); setPlaneDialog(null);
   }, [features, originPlanesVisible, referenceGeometry, sketches]);
 
   const onSelectFace = useCallback((face: SelectedFace | null) => {
@@ -194,9 +208,14 @@ export default function Home() {
         setSolidSelectionMode("draft-faces"); return;
       }
       if (solidSelectionMode === "draft-faces") {
+        setKernelMessage(null);
         setBodyFeatureDraft((draft) => {
           if (!draft || draft.type !== "draft" || draft.targetBodyId !== face.bodyId || draft.neutralFaceId === face.id) return draft;
-          const faceIndices = draft.faceIndices.includes(face.faceIndex) ? draft.faceIndices.filter((index) => index !== face.faceIndex) : [...draft.faceIndices, face.faceIndex];
+          const selectionGroup = face.draftGroupFaceIndices?.length ? face.draftGroupFaceIndices : [face.faceIndex];
+          const removeGroup = selectionGroup.every((index) => draft.faceIndices.includes(index));
+          const faceIndices = removeGroup
+            ? draft.faceIndices.filter((index) => !selectionGroup.includes(index))
+            : [...new Set([...draft.faceIndices, ...selectionGroup])];
           setSelectedDraftFaceIds([draft.neutralFaceId, ...faceIndices.map((index) => `${draft.targetBodyId}:face-${index}`)]);
           return { ...draft, faceIndices };
         });
@@ -293,7 +312,7 @@ export default function Home() {
     }
     startSketchOnPlane(plane);
   };
-  const editSketch = (id: string) => {
+  const editSketch = (id: string, initialTool: SketchInitialTool = "select") => {
     const sketch = sketches.find((item) => item.id === id);
     if (sketch && typeof sketch.plane === "string") {
       sketchSupportVisibilityRef.current = { originPlane: sketch.plane, originVisible: originPlanesVisible[sketch.plane] };
@@ -303,14 +322,14 @@ export default function Home() {
       sketchSupportVisibilityRef.current = { referenceId: sketch.plane.referenceId, referenceVisible: reference?.visible !== false };
       setReferenceGeometry((items) => items.map((item) => item.id === sketch.plane.referenceId ? { ...item, visible: true } : item));
     } else sketchSupportVisibilityRef.current = null;
-    setSketchViewDocument(cadDocument); setSketchView(defaultSketchView()); setSketchViewRotated(false); setEditingSketchId(id); setSelectedSketchId(id); setSelectedFeatureId(null); setSelectedPlane(null); setSketchSupportPicking(false); setSelectedBodyId(sketch && typeof sketch.plane !== "string" && sketch.plane.kind === "face" ? sketch.plane.bodyId : null); setSelectedFace(null);
+    setSketchViewDocument(cadDocument); setSketchView(defaultSketchView()); setSketchViewRotated(false); setSketchInitialTool(initialTool); setEditingSketchId(id); setSelectedSketchId(id); setSelectedFeatureId(null); setSelectedPlane(null); setSketchSupportPicking(false); setSelectedBodyId(sketch && typeof sketch.plane !== "string" && sketch.plane.kind === "face" ? sketch.plane.bodyId : null); setSelectedFace(null);
   };
   const finishSketch = () => {
     const support = sketchSupportVisibilityRef.current;
     if (support?.originPlane) setOriginPlanesVisible((visible) => ({ ...visible, [support.originPlane!]: support.originVisible ?? false }));
     if (support?.referenceId) setReferenceGeometry((items) => items.map((item) => item.id === support.referenceId ? { ...item, visible: support.referenceVisible ?? false } : item));
     sketchSupportVisibilityRef.current = null;
-    setEditingSketchId(null); setSketchViewDocument(null); setSketchView(defaultSketchView()); setSketchViewRotated(false); setExternalSketchReferences([]); setSelectedFeatureId(null);
+    setEditingSketchId(null); setSketchInitialTool("select"); setSketchViewDocument(null); setSketchView(defaultSketchView()); setSketchViewRotated(false); setExternalSketchReferences([]); setSelectedFeatureId(null);
   };
   const snapSketchNormal = () => { setSketchViewRotated(false); setSnapNormalRequest((request) => request + 1); };
   const flipSketchPlane = (id: string) => {
@@ -563,21 +582,64 @@ export default function Home() {
     setContextMenu({ x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)), type, id });
   };
 
-  const saveProject = () => download("untitled.lucascad.json", JSON.stringify({ schemaVersion: 2, units: "mm", ...cadDocument }, null, 2), "application/json");
-  const exportStep = async () => {
+  const isPickerCancellation = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
+  const loadProjectFile = async (file: File, handle: ProjectFileHandle | null) => {
     try {
-      const response = await fetch(`${API}/api/export/document.step`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cadDocument) });
-      if (!response.ok) { const error = await response.json().catch(() => null) as { detail?: string } | null; setKernelMessage(error?.detail ?? "STEP export failed"); return; }
-      const link = document.createElement("a"); link.href = URL.createObjectURL(await response.blob()); link.download = "lucascad-document.step"; link.click(); URL.revokeObjectURL(link.href);
+      const project = parseLucasCadProject(await file.text());
+      setSketches(project.sketches as LocalSketch[]); setFeatures(project.features as FeatureRecord[]); setReferenceGeometry(project.referenceGeometry as ReferenceGeometryRecord[]);
+      setEditingSketchId(null); setSketchInitialTool("select"); setSketchViewDocument(null); setSketchView(defaultSketchView()); setSketchViewRotated(false); setExternalSketchReferences([]);
+      setSelectedReferenceId(null); setSelectedSketchId(null); setSelectedFeatureId(null); setSelectedBodyId(null); setSelectedFace(null); setSelectedPlane(null); setSelectedEdges([]); setSelectedDraftFaceIds([]);
+      setSketchSupportPicking(false); setPlaneDialog(null); setProfileDialog(null); setFeatureDraft(null); setRevolveAxisPicking(false); setBodyFeatureDraft(null); setBodyFeatureTool(null); setSolidSelectionMode(null); setEditingFeatureId(null); setEditingReferenceId(null); setReferenceDraft(null);
+      setValidationDialog(null); setProfileWarning(null); setContextMenu(null); setRenameDialog(null); setLiveExtrusionDrag(null); setLiveChamferDrag(null); setLivePlaneOffset(null); setProperties(null); setKernelMessage(null);
+      projectFileHandleRef.current = handle; setProjectFileName(file.name || "Untitled Part"); setProjectFileError(null);
+    } catch (error) {
+      setProjectFileError({ title: "Project file could not be opened", message: error instanceof Error ? error.message : "The selected file is not a valid LucasCad project." });
+    }
+  };
+  const openProject = async () => {
+    const pickerWindow = window as unknown as ProjectPickerWindow;
+    if (!pickerWindow.showOpenFilePicker) { projectFileInputRef.current?.click(); return; }
+    try {
+      const [handle] = await pickerWindow.showOpenFilePicker({ multiple: false, types: [{ description: "LucasCad project", accept: { "application/json": [".json"] } }] });
+      if (handle) await loadProjectFile(await handle.getFile(), handle);
+    } catch (error) {
+      if (!isPickerCancellation(error)) setProjectFileError({ title: "Project file could not be opened", message: error instanceof Error ? error.message : "The file dialog could not be opened." });
+    }
+  };
+  const saveProject = async () => {
+    const content = serializeLucasCadProject(cadDocument);
+    const pickerWindow = window as unknown as ProjectPickerWindow;
+    let handle = projectFileHandleRef.current;
+    try {
+      if (!handle && pickerWindow.showSaveFilePicker) {
+        handle = await pickerWindow.showSaveFilePicker({ suggestedName: normalizeLucasCadFileName(projectFileName), types: [{ description: "LucasCad project", accept: { "application/json": [".json"] } }] });
+        projectFileHandleRef.current = handle; setProjectFileName(handle.name);
+      }
+      if (handle) {
+        const writable = await handle.createWritable(); await writable.write(content); await writable.close(); setProjectFileError(null); return;
+      }
+      const requestedName = projectFileName === "Untitled Part" ? window.prompt("Name this LucasCad project", "Untitled Part.lucascad.json") : projectFileName;
+      if (!requestedName) return;
+      const fileName = normalizeLucasCadFileName(requestedName); download(fileName, content, "application/json"); setProjectFileName(fileName); setProjectFileError(null);
+    } catch (error) {
+      if (!isPickerCancellation(error)) setProjectFileError({ title: "Project file could not be saved", message: error instanceof Error ? error.message : "LucasCad could not write the project file." });
+    }
+  };
+  const exportDocument = async (format: ExportFormat) => {
+    setExportMenuOpen(false);
+    try {
+      const response = await fetch(`${API}/api/export/document.${format}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cadDocument) });
+      if (!response.ok) { const error = await response.json().catch(() => null) as { detail?: string } | null; setKernelMessage(error?.detail ?? `${format.toUpperCase()} export failed`); return; }
+      const link = document.createElement("a"); link.href = URL.createObjectURL(await response.blob()); link.download = `lucascad-document.${format}`; link.click(); URL.revokeObjectURL(link.href); setKernelMessage(null);
     } catch (error) {
       setKernelStatus("offline");
-      setKernelMessage(error instanceof Error ? error.message : "STEP export service is unavailable");
+      setKernelMessage(error instanceof Error ? error.message : `${format.toUpperCase()} export service is unavailable`);
     }
   };
 
-  return <main className="cad-shell" onPointerDown={() => { if (contextMenu) setContextMenu(null); if (settingsOpen) setSettingsOpen(false); }}>
+  return <main className="cad-shell" onPointerDown={() => { if (contextMenu) setContextMenu(null); if (settingsOpen) setSettingsOpen(false); if (exportMenuOpen) setExportMenuOpen(false); }}>
     <header className="titlebar">
-      <div className="brand-mark">L</div><strong>LucasCad</strong><span className="document-name">Untitled Part</span>
+      <div className="brand-mark">L</div><strong>LucasCad</strong><span className="document-name" title={projectFileName}>{projectFileName}</span>
       <span className={`kernel-pill ${kernelStatus}`}><i />{kernelStatus === "ready" ? "Document ready" : kernelStatus === "error" ? "Rebuild failed" : kernelStatus === "offline" ? "Kernel offline" : "Rebuilding"}</span>
       <div className="title-actions">
         <div className="settings-control" onPointerDown={(event) => event.stopPropagation()}>
@@ -607,7 +669,16 @@ export default function Home() {
             <footer><button onClick={() => updateGlobalSettings(DEFAULT_GLOBAL_SETTINGS)}>Reset defaults</button></footer>
           </div>}
         </div>
-        <button onClick={saveProject}>Save</button><button className="export-action" disabled={!properties?.solidCount} onClick={exportStep}>Export STEP</button>
+        <input ref={projectFileInputRef} hidden type="file" accept=".json,application/json" aria-label="Open LucasCad project file" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void loadProjectFile(file, null); event.currentTarget.value = ""; }} />
+        <button onClick={() => void openProject()}>Open</button><button onClick={() => void saveProject()}>Save</button>
+        <div className="export-control" onPointerDown={(event) => event.stopPropagation()}>
+          <button className="export-action" disabled={!properties?.solidCount} aria-haspopup="menu" aria-expanded={exportMenuOpen} onClick={() => setExportMenuOpen((open) => !open)}>Export <span aria-hidden="true">▾</span></button>
+          {exportMenuOpen && <div className="export-menu" role="menu" aria-label="Export model format">
+            <button role="menuitem" onClick={() => void exportDocument("step")}><strong>STEP</strong><span>Exact CAD solid exchange</span></button>
+            <button role="menuitem" onClick={() => void exportDocument("stl")}><strong>STL</strong><span>Triangulated 3D-print mesh</span></button>
+            <button role="menuitem" onClick={() => void exportDocument("obj")}><strong>OBJ</strong><span>Indexed mesh with body groups</span></button>
+          </div>}
+        </div>
       </div>
     </header>
     <nav className="ribbon" aria-label="Modeling tools">
@@ -634,13 +705,13 @@ export default function Home() {
       <section className={`viewport ${editingSketch ? "sketch-mode" : ""}`} aria-label={editingSketch ? "Parametric 2D sketcher" : "Interactive 3D viewport"}>
         <div className="view-label">{editingSketch ? sketchViewRotated ? "SKETCH 3D VIEW · SNAP NORMAL TO CONTINUE EDITING" : `NORMAL TO ${planeLabel(editingSketch.plane).toUpperCase()} · BODIES VISIBLE` : "ISOMETRIC · SKETCHES SHOWN IN AMBER"}</div>
         <CadViewport document={{ ...(editingSketch ? sketchViewDocument ?? cadDocument : editingFeatureId ? featurePreviewDocument : cadDocument), referenceGeometry: referenceGeometryForViewport }} editingSketchId={editingSketchId} editingSketch={editingSketch} sketchView={sketchView} snapNormalRequest={snapNormalRequest} fitViewRequest={fitViewRequest} sketchSupportPicking={sketchSupportPicking} featurePreview={activeFeaturePreview} selectedBodyId={selectedBodyId} selectedEdgeIds={selectedEdges.map((edge) => edge.id)} selectedFaceIds={selectedDraftFaceIds.length ? selectedDraftFaceIds : selectedFace ? [selectedFace.id] : []} solidSelectionMode={solidSelectionMode} selectedPlane={selectedPlane} showModelGrid={showModelGrid} originCsyVisible={originCsyVisible} originPlanesVisible={originPlanesVisible} highlightedSketchId={selectedSketchId} selectableSketchIds={!editingSketch && profileDialog ? eligibleProfileSketchIds : null} revolveAxisPicking={revolveAxisPicking} selectedRevolveAxis={featureDraft?.type === "revolve" && featureDraft.axis && typeof featureDraft.axis === "object" ? featureDraft.axis : null} highlightedFeatureId={editingFeatureId ? null : selectedFeatureId} selectedReferenceId={referenceDraft?.type === "axis" ? editingReferenceId ?? "reference-axis-preview" : selectedReferenceId} referencePlanePicking={!editingSketch && referenceDraft?.type === "plane"} referenceAxisPicking={!editingSketch && referenceDraft?.type === "axis"} referencePlanePreview={referenceDraft?.type === "plane" ? { referenceId: editingReferenceId ?? "reference-plane-preview", baseOrigin: referenceDraft.baseOrigin, normal: referenceDraft.normal, offset: referenceDraft.offset } : null} onSketchViewChange={setSketchView} onSketchRotatedChange={setSketchViewRotated} onExternalReferencesChange={setExternalSketchReferences} onSelectSketch={selectProfileById} onSelectPlane={startSketchOnPlane} onSelectReferencePlane={selectReferencePlaneForSketch} onSelectReference={selectReferenceInModel} onSelectRevolveAxis={selectRevolveAxis} onReferencePlaneOffsetChange={updateReferencePlaneOffsetFromArrow} onFeaturePreviewDistanceChange={updateExtrusionDistanceFromArrow} onChamferPreviewParameterChange={updateChamferParameterFromArrow} onSelectEdge={onSelectEdge} onSelectFace={onSelectFace} onStatus={onStatus} />
-        {editingSketch && <Sketcher key={editingSketch.id} entities={editingSketch.entities} constraints={editingSketch.constraints} externalReferences={externalSketchReferences} dimensionOffsets={editingSketch.dimensionOffsets} dimensionTextScale={globalSettings.sketchDimensionTextScale} nodeDiameterPx={globalSettings.sketchNodeDiameterPx} highlightWidthPx={globalSettings.sketchHighlightWidthPx} gridSquareSize={globalSettings.sketchGridSizeMm} unitSystem={globalSettings.unitSystem} onChange={updateEditingSketch} onConstraintsChange={updateSketchConstraints} onDimensionOffsetsChange={updateDimensionOffsets} onFinish={finishSketch} view={sketchView} viewRotated={sketchViewRotated} onSnapNormal={snapSketchNormal} />}
+        {editingSketch && <Sketcher key={`${editingSketch.id}:${sketchInitialTool}`} entities={editingSketch.entities} constraints={editingSketch.constraints} externalReferences={externalSketchReferences} dimensionOffsets={editingSketch.dimensionOffsets} dimensionTextScale={globalSettings.sketchDimensionTextScale} nodeDiameterPx={globalSettings.sketchNodeDiameterPx} highlightWidthPx={globalSettings.sketchHighlightWidthPx} gridSquareSize={globalSettings.sketchGridSizeMm} unitSystem={globalSettings.unitSystem} initialTool={sketchInitialTool} onChange={updateEditingSketch} onConstraintsChange={updateSketchConstraints} onDimensionOffsetsChange={updateDimensionOffsets} onFinish={finishSketch} view={sketchView} viewRotated={sketchViewRotated} onSnapNormal={snapSketchNormal} />}
         {!editingSketch && sketchSupportPicking && <div className="support-pick-callout"><strong>Select sketch support</strong><span>Click a translucent origin plane in 3D, reference plane, or planar body face in 3D or the feature tree · Esc to cancel</span></div>}
         {!editingSketch && profileDialog && <div className="support-pick-callout profile-pick-callout"><strong>Select a highlighted sketch to {profileDialog}</strong><span>Click its geometry in 3D or its highlighted feature-tree row · Esc to cancel</span></div>}
         {!editingSketch && revolveAxisPicking && <div className="support-pick-callout profile-pick-callout axis-pick-callout"><strong>Select the revolve axis</strong><span>Click a highlighted straight sketch line, straight solid edge, or red/green/blue origin axis</span></div>}
         {!editingSketch && referenceDraft?.type === "plane" && <div className="support-pick-callout reference-plane-pick-callout"><strong>Select any planar reference</strong><span>Click any highlighted flat body face or existing reference plane · drag the cyan arrows for signed offset</span></div>}
         {!editingSketch && referenceDraft?.type === "axis" && <div className="support-pick-callout reference-plane-pick-callout axis-reference-pick-callout"><strong>Select an edge or axial surface</strong><span>Any edge defines an axis · cylinders, cones, and toroidal faces use their center axis</span></div>}
-        {!editingSketch && bodyFeatureTool && <div className="support-pick-callout solid-feature-callout"><strong>{bodyFeatureTool === "draft" ? solidSelectionMode === "draft-neutral" ? "Select neutral face" : "Select faces to draft" : bodyFeatureTool === "shell" ? "Select faces to remove" : `Select edges to ${bodyFeatureTool}`}</strong><span>{bodyFeatureTool === "draft" ? solidSelectionMode === "draft-neutral" ? "Click a planar face that stays fixed" : "Click one or more side faces · selected faces turn cyan · parallel faces are excluded" : bodyFeatureTool === "shell" ? "Click one or more opening faces · click again to remove · preview updates immediately" : "Click edges; Shift-click or keep clicking to add more"} · Esc to cancel</span></div>}
+        {!editingSketch && bodyFeatureTool && <div className="support-pick-callout solid-feature-callout"><strong>{bodyFeatureTool === "draft" ? solidSelectionMode === "draft-neutral" ? "Select neutral face" : "Select faces to draft" : bodyFeatureTool === "shell" ? "Select faces to remove" : `Select edges to ${bodyFeatureTool}`}</strong><span>{bodyFeatureTool === "draft" ? solidSelectionMode === "draft-neutral" ? "Click a planar face that stays fixed" : "Click side faces · connected curved walls propagate together · parallel faces are excluded" : bodyFeatureTool === "shell" ? "Click one or more opening faces · click again to remove · preview updates immediately" : "Click edges; Shift-click or keep clicking to add more"} · Esc to cancel</span></div>}
         {!editingSketch && !sketchSupportPicking && !bodyFeatureTool && selectedFace && <div className="selection-callout">Selected {selectedFace.planar ? "planar" : selectedFace.geometryType?.toLowerCase() ?? "curved"} face <span>{selectedFace.bodyId} · face {selectedFace.faceIndex}</span></div>}
         {!editingSketch && !bodyFeatureTool && selectedEdges.length > 0 && <div className="selection-callout">{selectedEdges.length} selected edge{selectedEdges.length === 1 ? "" : "s"}<span>Choose Fillet or Chamfer</span></div>}
         {!editingSketch && kernelMessage && <div className="model-error"><strong>Document rebuild failed</strong><span>{kernelMessage}</span></div>}
@@ -661,8 +732,9 @@ export default function Home() {
     <footer className="statusbar"><span>{kernelMessage ?? (editingSketch ? `Editing ${editingSketch.name}` : bodyFeatureTool ? bodyFeatureTool === "draft" ? solidSelectionMode === "draft-neutral" ? "Draft: select the neutral face" : "Draft: select faces to taper" : bodyFeatureTool === "shell" ? "Shell: select faces to remove" : `${bodyFeatureTool}: select one or more edges` : profileDialog ? `Select a highlighted sketch to ${profileDialog} · 3D or feature tree` : sketchSupportPicking ? "Select a planar face or origin plane for the new sketch" : "Ready")}</span><span>{properties ? `${properties.bodyCount} bodies · ${properties.solidCount} solids · ${sketches.length} sketches` : `${sketches.length} sketches`}</span><span>{globalSettings.unitSystem === "imperial" ? "IPS (inch)" : "MMGS (millimeter)"}</span></footer>
 
     {planeDialog && <div className="modal-backdrop"><div className="cad-dialog plane-dialog"><header><strong>{planeDialog.mode === "new" ? "Create new sketch" : "Change sketch support"}</strong><button onClick={() => setPlaneDialog(null)}>×</button></header><p>Choose an origin plane, reference plane, or selected planar body surface.</p><div className="plane-options"><button onClick={() => choosePlane("XY")}><i className="plane plane-blue"/>XY Plane<small>Top</small></button><button onClick={() => choosePlane("XZ")}><i className="plane plane-green"/>XZ Plane<small>Front</small></button><button onClick={() => choosePlane("YZ")}><i className="plane plane-red"/>YZ Plane<small>Right</small></button>{referenceGeometry.filter((reference): reference is ReferencePlaneRecord => reference.type === "plane").map((reference) => <button key={reference.id} className="reference-plane-choice" onClick={() => choosePlane({ kind: "reference-plane", referenceId: reference.id })}><i>▱</i>{reference.name}<small>{reference.sourceLabel}</small></button>)}{selectedFace && <button className="face-choice" onClick={() => choosePlane({ kind: "face", bodyId: selectedFace.bodyId, faceIndex: selectedFace.faceIndex, faceId: selectedFace.id })}><i>▰</i>Selected face<small>{selectedFace.bodyId} · F{selectedFace.faceIndex}</small></button>}</div>{!selectedFace && <div className="dialog-hint">To use a body surface, cancel this dialog, select a planar face in 3D, then click New Sketch again.</div>}</div></div>}
-    {validationDialog && <div className="modal-backdrop"><div className="cad-dialog validation-dialog"><header><strong>Sketch is not closed</strong><button onClick={() => setValidationDialog(null)}>×</button></header><div className="validation-mark">!</div><p><strong>{validationDialog.sketch.name}</strong> cannot create a solid feature.</p><ul>{validationDialog.result.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>{validationDialog.result.openEndpoints.length > 0 && <div className="endpoint-list"><strong>Open endpoints</strong>{validationDialog.result.openEndpoints.map((point, index) => <span key={index}>#{index + 1}: X {point.x.toFixed(2)}, Y {point.y.toFixed(2)}</span>)}</div>}<div className="dialog-actions"><button onClick={() => setValidationDialog(null)}>Cancel</button><button className="primary" onClick={() => { editSketch(validationDialog.sketch.id); setValidationDialog(null); }}>Show and repair sketch</button></div></div></div>}
+    {validationDialog && <div className="modal-backdrop"><div className="cad-dialog validation-dialog"><header><strong>Sketch is not closed</strong><button onClick={() => setValidationDialog(null)}>×</button></header><div className="validation-mark">!</div><p><strong>{validationDialog.sketch.name}</strong> cannot create a solid feature.</p><ul>{validationDialog.result.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>{validationDialog.result.openEndpoints.length > 0 && <div className="endpoint-list"><strong>Open endpoints</strong>{validationDialog.result.openEndpoints.map((point, index) => <span key={index}>#{index + 1}: X {point.x.toFixed(2)}, Y {point.y.toFixed(2)}</span>)}</div>}<div className="dialog-actions"><button onClick={() => setValidationDialog(null)}>Cancel</button><button className="primary" onClick={() => { editSketch(validationDialog.sketch.id, "sketch-check"); setValidationDialog(null); }}>Show and repair sketch</button></div></div></div>}
     {profileWarning && <div className="modal-backdrop"><div className="cad-dialog validation-dialog profile-warning-dialog"><header><strong>Fragile profile warning</strong><button onClick={() => setProfileWarning(null)}>×</button></header><div className="validation-mark">!</div><p><strong>{profileWarning.sketch.name}</strong> is closed, but may create an unstable or zero-thickness solid.</p><ul>{profileWarning.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><div className="dialog-actions"><button onClick={() => { editSketch(profileWarning.sketch.id); setProfileWarning(null); }}>Repair sketch</button><button className="primary" onClick={() => { beginFeatureDraft(profileWarning.sketch, profileWarning.type); setProfileWarning(null); }}>Continue anyway</button></div></div></div>}
+    {projectFileError && <div className="modal-backdrop"><div className="cad-dialog validation-dialog project-file-error"><header><strong>{projectFileError.title}</strong><button onClick={() => setProjectFileError(null)}>×</button></header><div className="validation-mark">!</div><p>{projectFileError.message}</p><div className="dialog-actions"><button className="primary" onClick={() => setProjectFileError(null)}>Dismiss</button></div></div></div>}
     {renameDialog && <div className="modal-backdrop"><div className="cad-dialog rename-dialog" onPointerDown={(event) => event.stopPropagation()}><header><strong>Rename {renameDialog.type}</strong><button onClick={() => setRenameDialog(null)}>×</button></header><label>Name<input autoFocus value={renameDialog.value} onChange={(event) => setRenameDialog({ ...renameDialog, value: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") saveRename(); if (event.key === "Escape") setRenameDialog(null); }} /></label><div className="dialog-actions"><button onClick={() => setRenameDialog(null)}>Cancel</button><button className="primary" disabled={!renameDialog.value.trim()} onClick={saveRename}>Rename</button></div></div></div>}
     {referenceDraft && <div className="cad-dialog feature-dialog feature-flyout reference-geometry-flyout" onPointerDown={(event) => event.stopPropagation()}><header><strong>{editingReferenceId ? `Edit ${referenceGeometry.find((reference) => reference.id === editingReferenceId)?.name}` : `New reference ${referenceDraft.type}`}</strong><button onClick={() => { setReferenceDraft(null); setEditingReferenceId(null); setLivePlaneOffset(null); }}>×</button></header><div className="reference-definition"><span>{referenceDraft.type === "plane" ? "▱" : referenceDraft.type === "axis" ? "╎" : "•"}</span><div><strong>{referenceDraft.sourceLabel}</strong><small>{referenceDraft.type === "plane" ? "Parallel / coincident plane reference" : referenceDraft.type === "axis" ? "Linear axis reference" : "Model-space construction point"}</small></div></div>
       {referenceDraft.type === "plane" && <><div className="reference-field"><span>Quick reference</span><div className="reference-quick-options" role="group" aria-label="Plane quick reference">{(["XY", "XZ", "YZ"] as const).map((plane) => { const active = referenceDraft.sourceLabel === `${plane} origin plane`; return <button key={plane} type="button" className={active ? "active" : ""} aria-pressed={active} onClick={() => { const base = originPlaneFrame(plane); setLivePlaneOffset(null); setReferenceDraft({ ...referenceDraft, baseOrigin: base.origin, normal: base.normal, xDir: base.xDir, sourceLabel: `${plane} origin plane`, offset: 0, flip: false }); }}>{plane}</button>; })}</div></div><label>Signed offset distance<div className="input-with-unit"><BufferedNumberInput aria-label="Reference plane offset" step={globalSettings.unitSystem === "imperial" ? 0.05 : 1} value={fromMillimeters(livePlaneOffset ?? referenceDraft.offset, globalSettings.unitSystem)} onValidValue={(value) => { setLivePlaneOffset(null); setReferenceDraft({ ...referenceDraft, offset: toMillimeters(value, globalSettings.unitSystem) }); }}/><span>{lengthUnit}</span></div></label><div className="signed-offset-hint"><span>−</span> opposite normal <b>0</b> coincident <span>+</span> along normal</div><button type="button" className={`draft-direction ${referenceDraft.flip ? "reversed" : ""}`} onClick={() => setReferenceDraft({ ...referenceDraft, flip: !referenceDraft.flip })}><span>⇅</span><div><strong>Flip plane normal</strong><small>{referenceDraft.flip ? "Normal reversed" : "Original reference normal"}</small></div></button><div className="dialog-hint">Click any highlighted flat face or existing reference plane. The gold plane is a live preview; drag either cyan arrow to adjust its signed offset before applying.</div></>}

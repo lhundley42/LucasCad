@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { analyzeSketchContours, automaticSplineHandles, circularPatternSketchEntity, circularPatternStep, cornerEntities, cornerLines, deleteSplinePoint, entityInSelectionBox, extendEntityToTarget, insertSplinePoint, linearPatternSketchEntity, mirrorSketchEntity, nearestGridVertex, normalizedSelectionBox, perpendicularLineToReference, pointInSelectionBox, sampleSplineEntity, sketchRelationIsSatisfied, sketchStrokeHits, synchronizeMirrorLinks, synchronizePatternLinks, translateSketchEntity, trimEntityAtPoint } from "../app/components/sketchGeometry.ts";
+import { analyzeSketchContours, automaticSplineHandles, circularPatternSketchEntity, circularPatternStep, cornerEntities, cornerLines, deleteSplinePoint, entityInSelectionBox, extendEntityToTarget, filletLines, insertSplinePoint, linearPatternSketchEntity, mirrorSketchEntity, nearestGridVertex, normalizedSelectionBox, perpendicularLineToReference, pointInSelectionBox, preferredSketchSnap, sampleSplineEntity, sketchRelationIsSatisfied, sketchStrokeHits, synchronizeMirrorLinks, synchronizePatternLinks, translateSketchEntity, trimEntityAtPoint } from "../app/components/sketchGeometry.ts";
 
 test("SketchCheck finds both endpoints of an isolated line", () => {
   const result = analyzeSketchContours([{ id: "line", type: "line", a: { x: 0, y: 0 }, b: { x: 20, y: 0 } }]);
@@ -54,6 +54,13 @@ test("every independent grid vertex is reachable without skipping", () => {
     assert.deepEqual(nearestGridVertex({ x: expected + 0.1, y: expected - 0.1 }, spacing), { x: expected, y: expected });
   }
   assert.deepEqual(nearestGridVertex({ x: 4.1, y: -3.9 }, spacing), { x: 8, y: 0 });
+});
+
+test("a visible endpoint inside the snap aperture wins over a closer grid vertex", () => {
+  const endpoint = { point: { x: 7, y: 0 }, kind: "endpoint", entityId: "target", handle: "a" };
+  const grid = { point: { x: 0, y: 0 }, kind: "grid" };
+  assert.equal(preferredSketchSnap({ x: 1, y: 0 }, [endpoint], 9, grid), endpoint);
+  assert.equal(preferredSketchSnap({ x: -12, y: 0 }, [endpoint], 9, grid), grid);
 });
 
 test("selection boxes normalize in either drag direction", () => {
@@ -268,6 +275,19 @@ test("corner rejects parallel line segments", () => {
   const first = { id: "first", type: "line", a: { x: 0, y: 0 }, b: { x: 10, y: 0 } };
   const second = { id: "second", type: "line", a: { x: 0, y: 5 }, b: { x: 10, y: 5 } };
   assert.equal(cornerLines(first, { x: 9, y: 0 }, second, { x: 9, y: 5 }), null);
+});
+
+test("radius creates a tangent constant-radius fillet between selected line sides", () => {
+  const horizontal = { id: "horizontal", type: "line", a: { x: 0, y: 0 }, b: { x: 50, y: 0 } };
+  const vertical = { id: "vertical", type: "line", a: { x: 0, y: 0 }, b: { x: 0, y: 50 } };
+  const result = filletLines(horizontal, { x: 40, y: 0 }, vertical, { x: 0, y: 40 }, 10, "fillet");
+  assert.ok(result);
+  assert.deepEqual(result.first.a, { x: 10.000000000000002, y: 0 });
+  assert.deepEqual(result.second.a, { x: 0, y: 10.000000000000002 });
+  const center = { x: 10, y: 10 };
+  assert.ok(Math.abs(Math.hypot(result.arc.a.x - center.x, result.arc.a.y - center.y) - 10) < 1e-8);
+  assert.ok(Math.abs(Math.hypot(result.arc.b.x - center.x, result.arc.b.y - center.y) - 10) < 1e-8);
+  assert.deepEqual(result.arc.relations, ["Tangent", "Fillet"]);
 });
 
 test("corner extends the nearest spline end along its tangent to meet a line", () => {

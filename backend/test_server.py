@@ -52,6 +52,34 @@ def test_step_export_is_step_exchange_file():
         path.unlink(missing_ok=True)
 
 
+def test_document_exports_binary_stl_and_grouped_obj_meshes():
+    document = {
+        "sketches": [{"id": "base", "plane": "XY", "entities": rectangle(-20, -15, 20, 15)}],
+        "features": [{"id": "base-feature", "type": "extrude", "sketchId": "base", "combine": "new", "bodyId": "body-1", "distance": 20}],
+    }
+    stl = client.post("/api/export/document.stl", json=document)
+    assert stl.status_code == 200, stl.text
+    assert stl.headers["content-type"].startswith("model/stl")
+    assert "lucascad-document.stl" in stl.headers["content-disposition"]
+    assert len(stl.content) >= 84
+    triangle_count = int.from_bytes(stl.content[80:84], "little")
+    assert triangle_count >= 12
+    assert len(stl.content) == 84 + triangle_count * 50
+
+    obj = client.post("/api/export/document.obj", json=document)
+    assert obj.status_code == 200, obj.text
+    assert obj.headers["content-type"].startswith("model/obj")
+    assert "lucascad-document.obj" in obj.headers["content-disposition"]
+    text = obj.text
+    assert text.startswith("# LucasCad Wavefront OBJ")
+    assert "\no body-1\n" in text
+    vertices = [line for line in text.splitlines() if line.startswith("v ")]
+    faces = [line for line in text.splitlines() if line.startswith("f ")]
+    assert len(vertices) >= 8
+    assert len(faces) >= 12
+    assert max(int(index) for face in faces for index in face.split()[1:]) <= len(vertices)
+
+
 def test_closed_sketch_extrudes_to_exact_solid():
     result = client.post("/api/model", json={"operation": "extrude", "distance": 20, "entities": rectangle(-50, -30, 50, 30)})
     assert result.status_code == 200
@@ -452,6 +480,44 @@ def test_document_drafts_closed_spline_hull_without_failing_at_its_joining_point
     assert payload["previewTargetBodyId"] == "body-1"
     assert payload["previewFaces"]
     assert payload["properties"]["valid"] is True
+
+
+def test_document_drafts_a_pointed_canoe_built_from_connected_spline_spans():
+    spans = [
+        [(-60, 0), (-45, -12), (0, -24)],
+        [(0, -24), (45, -12), (60, 0)],
+        [(60, 0), (45, 12), (0, 24)],
+        [(0, 24), (-45, 12), (-60, 0)],
+    ]
+    entities = [
+        {"id": f"canoe-span-{index}", "type": "spline", "points": [{"x": x, "y": y} for x, y in points]}
+        for index, points in enumerate(spans)
+    ]
+    base = {
+        "sketches": [{"id": "canoe", "plane": "XY", "entities": entities}],
+        "features": [{"id": "canoe-extrude", "type": "extrude", "sketchId": "canoe", "combine": "new", "bodyId": "body-1", "distance": 18}],
+    }
+    extruded = client.post("/api/document", json=base)
+    assert extruded.status_code == 200, extruded.text
+    faces = extruded.json()["faces"]
+    neutral = next(face for face in faces if face["planar"] and face["normal"][2] > 0.99)
+    swept_sides = [face for face in faces if face["geometryType"] == "EXTRUSION"]
+    assert len(swept_sides) == 4
+
+    drafted = client.post("/api/document", json={
+        **base,
+        "features": [*base["features"], {
+            "id": "canoe-draft", "type": "draft", "targetBodyId": "body-1",
+            "neutralFaceIndex": neutral["faceIndex"],
+            "faceIndices": [face["faceIndex"] for face in swept_sides],
+            "angle": 10, "reverse": False,
+        }],
+    })
+    assert drafted.status_code == 200, drafted.text
+    payload = drafted.json()
+    assert payload["properties"]["valid"] is True
+    assert payload["properties"]["solidCount"] == 1
+    assert payload["properties"]["faceCount"] >= 6
 
 
 def test_document_shells_a_box_inward_and_removes_the_selected_opening_face():

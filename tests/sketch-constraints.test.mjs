@@ -17,6 +17,8 @@ import {
   linearOrientationOptions,
   nonOverlappingReferenceHitRadius,
   preferredAxisOrSketchLineTarget,
+  radialDimensionLayout,
+  radialDimensionValue,
   targetPointForLinearValue,
   validLinearDimensionPair,
 } from "../app/components/sketchConstraints.ts";
@@ -28,6 +30,20 @@ test("diameter dimensions span the selected circle and report its driving value"
   assert.deepEqual(layout.first, { x: -7, y: -3 });
   assert.deepEqual(layout.second, { x: 17, y: -3 });
   assert.deepEqual(layout.label, { x: 30, y: -3 });
+});
+
+test("radial dimensions drive circles and arcs from center to edge", () => {
+  const geometry = [
+    { id: "circle", type: "circle", c: { x: 5, y: -3 }, r: 12 },
+    { id: "arc", type: "arc", a: { x: 20, y: 0 }, b: { x: 0, y: 20 }, through: { x: 14.1421356, y: 14.1421356 } },
+  ];
+  const circleLayout = radialDimensionLayout("circle", { x: 30, y: -3 }, geometry);
+  assert.equal(radialDimensionValue("circle", geometry), 12);
+  assert.deepEqual(circleLayout.first, { x: 5, y: -3 });
+  assert.deepEqual(circleLayout.second, { x: 17, y: -3 });
+  assert.ok(Math.abs(radialDimensionValue("arc", geometry) - 20) < 1e-5);
+  const arcLayout = radialDimensionLayout("arc", { x: 30, y: 30 }, geometry);
+  assert.ok(Math.hypot(arcLayout.first.x, arcLayout.first.y) < 1e-5);
 });
 
 test("the closest visible target wins when a sketch line overlaps an axis hit area", () => {

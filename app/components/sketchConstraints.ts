@@ -1,4 +1,4 @@
-import { distance, midpoint, type Point, type SketchEntity } from "./sketchGeometry.ts";
+import { circumcircle, distance, midpoint, type Point, type SketchEntity } from "./sketchGeometry.ts";
 
 export type LinearOrientation = "horizontal" | "vertical" | "aligned";
 export type SketchReference =
@@ -38,6 +38,15 @@ export type AngularDimensionConstraint = {
 export type DiameterDimensionConstraint = {
   id: string;
   type: "diameter";
+  entityId: string;
+  position: Point;
+  value: number;
+  conflicted?: boolean;
+};
+
+export type RadialDimensionConstraint = {
+  id: string;
+  type: "radial";
   entityId: string;
   position: Point;
   value: number;
@@ -97,7 +106,7 @@ export type CircularPatternConstraint = {
 
 export type PatternConstraint = LinearPatternConstraint | CircularPatternConstraint;
 
-export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | DiameterDimensionConstraint | MirrorConstraint | PatternConstraint;
+export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | DiameterDimensionConstraint | RadialDimensionConstraint | MirrorConstraint | PatternConstraint;
 
 export type DimensionLayout = {
   first: Point;
@@ -143,6 +152,30 @@ export function diameterDimensionLayout(entityId: string, position: Point, entit
     second: { x: entity.c.x + direction.x * entity.r, y: entity.c.y + direction.y * entity.r },
     label: position,
     value: entity.r * 2,
+  };
+}
+
+export function radialDimensionValue(entityId: string, entities: SketchEntity[]): number {
+  const entity = entities.find((candidate) => candidate.id === entityId);
+  if (entity?.type === "circle") return entity.r;
+  if (entity?.type === "arc") return circumcircle(entity.a, entity.b, entity.through).r;
+  return 0;
+}
+
+export function radialDimensionLayout(entityId: string, position: Point, entities: SketchEntity[]): DiameterDimensionLayout {
+  const entity = entities.find((candidate) => candidate.id === entityId);
+  if (!entity || entity.type !== "circle" && entity.type !== "arc") return { center: position, first: position, second: position, label: position, value: 0 };
+  const circle = entity.type === "circle" ? { c: entity.c, r: entity.r } : circumcircle(entity.a, entity.b, entity.through);
+  let dx = position.x - circle.c.x; let dy = position.y - circle.c.y;
+  if (entity.type === "arc") { dx = entity.through.x - circle.c.x; dy = entity.through.y - circle.c.y; }
+  const length = Math.hypot(dx, dy);
+  const direction = length > 1e-8 ? { x: dx / length, y: dy / length } : { x: 1, y: 0 };
+  return {
+    center: circle.c,
+    first: circle.c,
+    second: { x: circle.c.x + direction.x * circle.r, y: circle.c.y + direction.y * circle.r },
+    label: position,
+    value: circle.r,
   };
 }
 

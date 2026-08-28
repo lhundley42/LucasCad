@@ -414,6 +414,8 @@
   line-height: 1;
 }
 .diameter-dimension-icon{display:grid;place-items:center;width:18px;height:18px;color:#62d7ff;font:700 18px/1 Georgia,serif}.diameter-constraint .constraint-measure{stroke:#62d7ff}.diameter-constraint .constraint-extension{stroke-dasharray:2 2}.sketch-canvas.tool-diameter-dimension .sketch-entity.constraint-selectable{cursor:crosshair}.sketch-canvas.tool-diameter-dimension .sketch-entity.constraint-selectable:hover>circle{filter:drop-shadow(0 0 3px #62d7ff);stroke:#ffd36a}
+.radial-dimension-icon,.sketch-radius-icon{display:grid;place-items:center;width:18px;height:18px;color:#77e0bc;font:italic 700 15px/1 Georgia,serif}.radial-constraint .constraint-measure{stroke:#77e0bc}.radial-constraint .constraint-extension{stroke-dasharray:2 2}.sketch-canvas.tool-radial-dimension .sketch-entity.constraint-selectable{cursor:crosshair}.sketch-canvas.tool-radial-dimension .sketch-entity.constraint-selectable:hover>circle,.sketch-canvas.tool-radial-dimension .sketch-entity.constraint-selectable:hover>path{filter:drop-shadow(0 0 3px #61d7b1);stroke:#ffd36a}.sketch-commandbar .radius-tool.active .sketch-tool-icon{color:#8df0cc}
+.sketch-radius-preview{pointer-events:none;opacity:.82}.sketch-radius-preview line,.sketch-radius-preview path{fill:none;stroke:#71f0c4;stroke-width:1.4px;stroke-dasharray:4 2;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 3px #2fc999)}.sketch-canvas.tool-radius{cursor:crosshair}.sketch-radius-manager{border-color:#39735f}.sketch-radius-manager header{background:#142c25}.sketch-radius-manager .pattern-manager-section.active-step{background:#12352b;box-shadow:inset 3px 0 #62d7ac}.sketch-radius-manager .pattern-manager-section.active-step>b{color:#89f0c9}.sketch-radius-manager .radius-field{grid-template-columns:1fr}
 
 .axis-constraint-icon { display:inline-block; width:14px; height:14px; position:relative; }
 .axis-constraint-icon::after { content:""; position:absolute; inset:6px 1px auto; border-top:2px solid #71d6f7; }
@@ -452,6 +454,11 @@
 .pattern-constraint-badge.selected circle { fill:#49321b; stroke:#ffd56f; stroke-width:1.1px; }
 .pattern-constraint-badge:hover text,
 .pattern-constraint-badge.selected text { fill:#ffd56f; }
+.coincident-relation-glyph { pointer-events:none; }
+.coincident-relation-glyph circle:first-child { fill:#101a22; stroke:#c978ff; stroke-width:.9px; vector-effect:non-scaling-stroke; }
+.coincident-relation-glyph circle:last-child { fill:#c978ff; }
+.snap-marker.drag-snap circle { fill:rgba(201,120,255,.13); stroke:#d799ff; stroke-width:1px; vector-effect:non-scaling-stroke; }
+.snap-marker.drag-snap text { fill:#e6bdff; font-size:7px; }
 .sketch-pattern-preview { pointer-events:none; opacity:.54; }
 .sketch-pattern-preview line,
 .sketch-pattern-preview circle,

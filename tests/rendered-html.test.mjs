@@ -66,6 +66,19 @@ test("modeling ribbon starts sketches and validates profiles before features", a
   assert.match(page, /<BufferedNumberInput id="grid-square-size"/);
   assert.match(page, /sketchGridSizeMm: Math\.max/);
   assert.match(page, /externalReferences=\{externalSketchReferences\}/);
+  assert.match(page, /aria-label="Export model format"/);
+  assert.match(page, /exportDocument\("step"\)/);
+  assert.match(page, /exportDocument\("stl"\)/);
+  assert.match(page, /exportDocument\("obj"\)/);
+  assert.match(page, /Triangulated 3D-print mesh/);
+  assert.match(page, /Indexed mesh with body groups/);
+  assert.match(page, /showOpenFilePicker/);
+  assert.match(page, /showSaveFilePicker/);
+  assert.match(page, /parseLucasCadProject\(await file\.text\(\)\)/);
+  assert.match(page, /setProjectFileName\(file\.name/);
+  assert.match(page, /className="document-name" title=\{projectFileName\}>\{projectFileName\}/);
+  assert.match(page, /Open LucasCad project file/);
+  assert.match(page, /serializeLucasCadProject\(cadDocument\)/);
 });
 
 test("sketcher exposes profile tools, editable dimensions, and draggable controls", async () => {
@@ -83,6 +96,9 @@ test("sketcher exposes profile tools, editable dimensions, and draggable control
   assert.match(sketcher, /snapEnabled/);
   assert.match(sketcher, /className="control-point"/);
   assert.match(sketcher, /replaceConnectedPoint/);
+  assert.match(sketcher, /dragSnapRef/);
+  assert.match(sketcher, /Coincident relation added/);
+  assert.match(sketcher, /coincident-relation-glyph/);
   assert.match(sketcher, /trimEntityAtPoint/);
   assert.match(sketcher, /cornerEntities/);
   assert.match(sketcher, /Snap normal/);
@@ -95,6 +111,10 @@ test("sketcher exposes profile tools, editable dimensions, and draggable control
   assert.match(sketcher, /Linear dimension constraint/);
   assert.match(sketcher, /Angular dimension constraint/);
   assert.match(sketcher, /Diameter dimension constraint/);
+  assert.match(sketcher, /Sketch radius: select two line segments/);
+  assert.match(sketcher, /Radial dimension constraint/);
+  assert.match(sketcher, /radialDimensionLayout/);
+  assert.match(sketcher, /Radial constraint value/);
   assert.match(sketcher, /diameterDimensionLayout/);
   assert.match(sketcher, /Diameter constraint value/);
   assert.match(sketcher, /Perpendicular constraint/);
@@ -134,9 +154,11 @@ test("sketcher exposes profile tools, editable dimensions, and draggable control
   assert.match(sketcher, /entity\.type === "line" \? 10 : 16/);
   assert.match(sketcher, /entity\.type === "line" \? 0\.22 : 0\.45/);
   assert.match(sketcher, /nearestGridVertex/);
-  assert.match(sketcher, /gridDistance \+ 1e-6/);
-  assert.match(sketcher, /className=\{`snap-marker \$\{snap\.kind\}`\}[\s\S]*?r=\{gridSquareSize \/ 2\}/);
-  assert.match(sketcher, /snap && sketchingToolActive/);
+  assert.match(sketcher, /preferredSketchSnap/);
+  assert.match(sketcher, /className=\{`snap-marker \$\{snap\.kind\} \$\{dragging/);
+  assert.match(sketcher, /sketchingToolActive \|\| Boolean\(dragging\)/);
+  assert.match(sketcher, /snap\.point\.y\} r=\{nodeRadius\}/);
+  assert.doesNotMatch(sketcher, /snap\.point\.y\} r=\{[^}]*gridSquareSize/);
   assert.doesNotMatch(sketcher, /snap\.kind === "grid" \? gridSquareSize \/ 2 : 5/);
   assert.match(sketcher, /constraint-line-hit/);
   assert.match(sketcher, /--sketch-highlight-width/);
@@ -215,6 +237,11 @@ test("LucasCad exposes SolidWorks-style fillet, chamfer, neutral-plane draft, an
   assert.match(viewport, /onSelectEdge/);
   assert.match(viewport, /selectedFaceOverlay/);
   assert.match(viewport, /draftCandidate/);
+  assert.match(viewport, /propagatedDraftFaceIndices/);
+  assert.match(viewport, /draftSideFaces\.length > 4/);
+  assert.match(viewport, /draftGroupFaceIndices/);
+  assert.match(page, /connected curved walls propagate together/);
+  assert.match(page, /selectionGroup\.every/);
   assert.match(server, /face_selection_metadata/);
   assert.match(viewport, /chamferArrowHits/);
   assert.match(viewport, /refreshChamferPreview/);
@@ -363,6 +390,16 @@ test("SketchCheck is a two-stage admin tool placed immediately before Finish", a
   assert.match(css, /\.sketch-entity\.sketch-check-open/);
 });
 
+test("extrude repair opens the sketch directly in SketchCheck mode", async () => {
+  const [page, sketcher] = await Promise.all([source("app/page.tsx"), source("app/components/Sketcher.tsx")]);
+  assert.match(page, /editSketch\(validationDialog\.sketch\.id, "sketch-check"\)/);
+  assert.match(page, /initialTool=\{sketchInitialTool\}/);
+  assert.match(sketcher, /initialTool = "select"/);
+  assert.match(sketcher, /useState<Tool>\(initialTool\)/);
+  assert.match(sketcher, /initialTool === "sketch-check" \? analyzeSketchContours/);
+  assert.match(sketcher, /sketchCheckResultMessage\(sketchCheck\)/);
+});
+
 test("model navigation uses an unrestricted picked-pivot virtual trackball", async () => {
   const viewport = await readFile("app/components/CadViewport.tsx", "utf8");
   const css = await readFile("app/modeling.css", "utf8");
@@ -389,7 +426,15 @@ test("model navigation uses an unrestricted picked-pivot virtual trackball", asy
   assert.match(viewport, /window\.document\.createElement\("div"\)/);
   assert.doesNotMatch(viewport, /const viewMenu = document\.createElement/);
   assert.match(viewport, /pivotIndicator/);
+  assert.match(viewport, /x: -offset\.dot\(activeFrame\.xDir\), y: -offset\.dot\(activeFrame\.yDir\)/);
+  assert.match(viewport, /addScaledVector\(activeFrame\.xDir, -initialView\.center\.x\)\.addScaledVector\(activeFrame\.yDir, -initialView\.center\.y\)/);
   assert.match(css, /\.model-view-context-menu/);
+});
+
+test("normal sketch view renders one editable copy and reserves the live 3D copy for rotation", async () => {
+  const viewport = await source("app/components/CadViewport.tsx");
+  assert.match(viewport, /liveSketchLayer\.visible = false/);
+  assert.match(viewport, /liveSketchLayer\.visible = rotated/);
 });
 
 test("NX-style trim supports spline intersections and drag-across gestures", async () => {
@@ -406,6 +451,9 @@ test("NX-style trim supports spline intersections and drag-across gestures", asy
 test("sketch patterns support shift selection and persistent mirror constraints", async () => {
   const sketcher = await source("app/components/Sketcher.tsx");
   assert.match(sketcher, /event\.shiftKey/);
+  assert.match(sketcher, /tool === "select" \|\| tool === "mirror" && mirrorStage === "entities"/);
+  assert.match(sketcher, /setMirrorStage\(selectedIds\.length \? "axis" : "entities"\)/);
+  assert.match(sketcher, /Drag a selection box around the geometry to mirror/);
   assert.match(sketcher, /<b>Patterns<\/b>/);
   assert.match(sketcher, /label="Mirror"/);
   assert.match(sketcher, /type: "mirror"/);

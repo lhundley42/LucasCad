@@ -35,7 +35,7 @@ export type ChamferMethod = "symmetric" | "angle-distance" | "distance-distance"
 export type ChamferParameter = "distance" | "distance2" | "angle";
 export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; combine?: "new" | "union" | "cut"; bodyId?: string; bodyName?: string; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; thickness?: number; outward?: boolean; visible?: boolean };
 export type DocumentRequest = { sketches: SketchRecord[]; features: FeatureRecord[]; referenceGeometry?: ReferenceGeometryRecord[] };
-export type SelectedFace = AxisSelectionMetadata & { id: string; bodyId: string; faceIndex: number; center?: VectorTuple; normal?: VectorTuple; planar?: boolean };
+export type SelectedFace = AxisSelectionMetadata & { id: string; bodyId: string; faceIndex: number; center?: VectorTuple; normal?: VectorTuple; planar?: boolean; draftGroupFaceIndices?: number[] };
 export type SelectedEdge = AxisSelectionMetadata & { id: string; bodyId: string; edgeIndex: number; points?: VectorTuple[]; linear?: boolean };
 export type SolidSelectionMode = "edges" | "draft-neutral" | "draft-faces" | "shell-faces" | null;
 export type FeaturePreview =
@@ -343,6 +343,10 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     const selectedFaceOverlay = new THREE.Group();
     const sketchLayer = new THREE.Group();
     const liveSketchLayer = new THREE.Group();
+    // The editable SVG is the sole sketch rendering while the camera is normal
+    // to the sketch plane. Three.js takes over only for rotated 3D inspection;
+    // showing both layers here creates a vertically mirrored duplicate.
+    liveSketchLayer.visible = false;
     const previewLayer = new THREE.Group();
     const pivotIndicator = new THREE.Mesh(new THREE.RingGeometry(0.72, 1, 32), new THREE.MeshBasicMaterial({ color: 0xffb44f, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
     pivotIndicator.visible = false; pivotIndicator.renderOrder = 20;
@@ -445,17 +449,21 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       if (selected) (selected.material as THREE.MeshStandardMaterial).color.set(faceColor(selected.userData.faceId, selected.userData.bodyId));
       selected = mesh;
       if (selected) (selected.material as THREE.MeshStandardMaterial).color.set(0x8cddf7);
-      onSelectFace(mesh ? { id: mesh.userData.faceId, bodyId: mesh.userData.bodyId, faceIndex: mesh.userData.faceIndex, center: mesh.userData.center, normal: mesh.userData.normal, planar: mesh.userData.planar, geometryType: mesh.userData.geometryType, axisOrigin: mesh.userData.axisOrigin, axisDirection: mesh.userData.axisDirection, axisKind: mesh.userData.axisKind } : null, additive);
+      onSelectFace(mesh ? { id: mesh.userData.faceId, bodyId: mesh.userData.bodyId, faceIndex: mesh.userData.faceIndex, center: mesh.userData.center, normal: mesh.userData.normal, planar: mesh.userData.planar, geometryType: mesh.userData.geometryType, axisOrigin: mesh.userData.axisOrigin, axisDirection: mesh.userData.axisDirection, axisKind: mesh.userData.axisKind, draftGroupFaceIndices: mesh.userData.draftGroupFaceIndices } : null, additive);
     };
 
     const syncSketchView = () => {
       if (!sketchMode || !activeFrame || !(camera instanceof THREE.OrthographicCamera)) return;
       const direction = new THREE.Vector3(); camera.getWorldDirection(direction);
       const rotated = direction.dot(activeFrame.normal) < 0.9995;
+      liveSketchLayer.visible = rotated;
       if (rotated !== lastRotated) { lastRotated = rotated; onSketchRotatedChange?.(rotated); }
       if (rotated) return;
       const offset = controls.target.clone().sub(activeFrame.origin);
-      const next: SketchView = { center: { x: offset.dot(activeFrame.xDir), y: offset.dot(activeFrame.yDir) }, zoom: camera.zoom };
+      // Three.js moves the camera opposite the pointer so the model follows the
+      // drag. An SVG viewBox moves its contents opposite its center, so invert
+      // the world offset when handing the same pan to the editable sketch.
+      const next: SketchView = { center: { x: -offset.dot(activeFrame.xDir), y: -offset.dot(activeFrame.yDir) }, zoom: camera.zoom };
       if (Math.abs(next.center.x - lastView.center.x) > 0.001 || Math.abs(next.center.y - lastView.center.y) > 0.001 || Math.abs(next.zoom - lastView.zoom) > 0.0001) {
         lastView = next;
         onSketchViewChange?.(next);
@@ -491,6 +499,18 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
         if (disposed) return;
         const neutralFacePayload = solidSelectionMode === "draft-faces" ? data.faces.find((face) => face.id === selectedFaceIds[0]) : null;
         draftNeutralNormal = neutralFacePayload?.normal ? new THREE.Vector3(...neutralFacePayload.normal).normalize() : null;
+        const draftSideFaces = neutralFacePayload && draftNeutralNormal ? data.faces.filter((face) => {
+          if (face.bodyId !== neutralFacePayload.bodyId || face.id === neutralFacePayload.id || !face.normal) return false;
+          return Math.abs(draftNeutralNormal!.dot(new THREE.Vector3(...face.normal).normalize())) < 0.985;
+        }) : [];
+        // A spline hull is split into several swept faces, while a faceted
+        // canoe has more than four narrow wall faces. Drafting either one face
+        // at a time creates an invalid transient corner, so treat the connected
+        // neutral-boundary wall as one selection chain. Ordinary boxes retain
+        // independent face selection.
+        const propagatedDraftFaceIndices = draftSideFaces.length > 4 || draftSideFaces.some((face) => !["PLANE", "CYLINDER", "CONE"].includes(face.geometryType ?? ""))
+          ? draftSideFaces.map((face) => face.faceIndex)
+          : undefined;
         for (const face of data.faces) {
           if (hiddenBodyIds.has(face.bodyId)) continue;
           const targetReplacedByPreview = Boolean(featurePreview && featurePreview.type !== "extrude" && data.previewTargetBodyId === face.bodyId);
@@ -502,7 +522,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
           const draftCandidate = solidSelectionMode !== "draft-faces" || faceSelected || (face.bodyId === neutralFacePayload?.bodyId && face.id !== selectedFaceIds[0] && Boolean(draftNeutralNormal && faceNormal && Math.abs(draftNeutralNormal.dot(faceNormal)) < 0.985));
           const baseOpacity = targetReplacedByPreview ? faceSelected ? 0.16 : 0.001 : sketchMode ? 0.42 : 1;
           const material = new THREE.MeshStandardMaterial({ color: faceColor(face.id, face.bodyId), emissive: featureHighlighted ? 0x4a2500 : faceSelected ? 0x49310a : 0x000000, emissiveIntensity: featureHighlighted ? 0.45 : faceSelected ? 0.35 : 0, roughness: 0.55, metalness: 0.06, side: THREE.DoubleSide, transparent: sketchMode || targetReplacedByPreview, opacity: baseOpacity, depthWrite: !sketchMode && !targetReplacedByPreview });
-          const mesh = new THREE.Mesh(geometry, material); mesh.userData = { faceId: face.id, bodyId: face.bodyId, faceIndex: face.faceIndex, center: face.center, normal: face.normal, baseOpacity, draftCandidate, planar: face.planar !== false, geometryType: face.geometryType, axisOrigin: face.axisOrigin, axisDirection: face.axisDirection, axisKind: face.axisKind }; model.add(mesh);
+          const mesh = new THREE.Mesh(geometry, material); mesh.userData = { faceId: face.id, bodyId: face.bodyId, faceIndex: face.faceIndex, center: face.center, normal: face.normal, baseOpacity, draftCandidate, planar: face.planar !== false, geometryType: face.geometryType, axisOrigin: face.axisOrigin, axisDirection: face.axisDirection, axisKind: face.axisKind, draftGroupFaceIndices: draftCandidate && propagatedDraftFaceIndices?.includes(face.faceIndex) ? propagatedDraftFaceIndices : undefined }; model.add(mesh);
           if (faceSelected && (solidSelectionMode === "draft-neutral" || solidSelectionMode === "draft-faces" || solidSelectionMode === "shell-faces")) {
             const overlay = new THREE.Mesh(geometry.clone(), new THREE.MeshBasicMaterial({ color: faceColor(face.id, face.bodyId), transparent: true, opacity: selectedFaceIds.indexOf(face.id) === 0 ? 0.48 : 0.38, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
             overlay.renderOrder = 8; selectedFaceOverlay.add(overlay);
@@ -676,7 +696,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
             };
             sketchFrameRef.current = activeFrame;
             const initialView = sketchViewRef.current;
-            const target = activeFrame.origin.clone().addScaledVector(activeFrame.xDir, initialView.center.x).addScaledVector(activeFrame.yDir, initialView.center.y);
+            const target = activeFrame.origin.clone().addScaledVector(activeFrame.xDir, -initialView.center.x).addScaledVector(activeFrame.yDir, -initialView.center.y);
             camera.position.copy(target).addScaledVector(activeFrame.normal, -1000);
             camera.up.copy(activeFrame.yDir);
             camera.lookAt(target);
