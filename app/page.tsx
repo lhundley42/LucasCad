@@ -143,6 +143,13 @@ export default function Home() {
     const creator = features.find((feature) => feature.bodyId === bodyId);
     return creator?.bodyName?.trim() || `Body ${Math.max(1, bodyIds.indexOf(bodyId) + 1)}`;
   }, [bodyIds, features]);
+  const bodyIsVisible = useCallback((bodyId: string) => {
+    const related = features.filter((feature) => feature.bodyId === bodyId || feature.targetBodyId === bodyId);
+    const creator = related.find((feature) => feature.combine === "new" && feature.bodyId === bodyId);
+    return creator?.bodyVisible !== false && related.every((feature) => feature.visible !== false);
+  }, [features]);
+  const anySolidGeometryVisible = bodyIds.some(bodyIsVisible);
+  const anyDatumOrSketchVisible = originCsyVisible || Object.values(originPlanesVisible).some(Boolean) || referenceGeometry.some((reference) => reference.visible !== false) || sketches.some((sketch) => sketch.visible !== false);
   const editingSketch = sketches.find((sketch) => sketch.id === editingSketchId) ?? null;
   const selectedSketch = sketches.find((sketch) => sketch.id === selectedSketchId) ?? null;
   const selectedFeature = features.find((feature) => feature.id === selectedFeatureId) ?? null;
@@ -358,6 +365,45 @@ export default function Home() {
   const updateDimensionOffsets = (dimensionOffsets: Record<string, { x: number; y: number }>) => setSketches((items) => items.map((sketch) => sketch.id === editingSketchId ? { ...sketch, dimensionOffsets } : sketch));
   const toggleSketchVisibility = (id: string) => setSketches((items) => items.map((sketch) => sketch.id === id ? { ...sketch, visible: sketch.visible === false } : sketch));
   const toggleFeatureVisibility = (id: string) => setFeatures((items) => items.map((feature) => feature.id === id ? { ...feature, visible: feature.visible === false } : feature));
+  const setBodyVisibility = (bodyId: string, visible: boolean) => {
+    const update = (items: FeatureRecord[]) => items.map((feature) => {
+      const createsBody = feature.combine === "new" && feature.bodyId === bodyId;
+      const belongsToBody = feature.bodyId === bodyId || feature.targetBodyId === bodyId;
+      if (!belongsToBody) return feature;
+      return { ...feature, ...(createsBody ? { bodyVisible: visible } : {}), ...(visible ? { visible: true } : {}) };
+    });
+    setFeatures(update);
+    setSketchViewDocument((current) => current ? { ...current, features: update(current.features) } : current);
+    if (!visible && selectedBodyId === bodyId) setSelectedBodyId(null);
+  };
+  const toggleBodyVisibility = (bodyId: string) => setBodyVisibility(bodyId, !bodyIsVisible(bodyId));
+  const toggleAllSolidGeometry = () => {
+    const visible = !anySolidGeometryVisible;
+    const bodyIdSet = new Set(bodyIds);
+    const update = (items: FeatureRecord[]) => items.map((feature) => {
+      const bodyId = feature.bodyId ?? feature.targetBodyId;
+      if (!bodyId || !bodyIdSet.has(bodyId)) return feature;
+      const createsBody = feature.combine === "new" && feature.bodyId === bodyId;
+      return { ...feature, ...(createsBody ? { bodyVisible: visible } : {}), ...(visible ? { visible: true } : {}) };
+    });
+    setFeatures(update);
+    setSketchViewDocument((current) => current ? { ...current, features: update(current.features) } : current);
+    if (!visible) setSelectedBodyId(null);
+  };
+  const toggleAllDatumsAndSketches = () => {
+    const visible = !anyDatumOrSketchVisible;
+    const updateSketches = (items: LocalSketch[]) => items.map((sketch) => ({ ...sketch, visible }));
+    const updateReferences = (items: ReferenceGeometryRecord[]) => items.map((reference) => ({ ...reference, visible }));
+    setOriginCsyVisible(visible);
+    setOriginPlanesVisible({ XY: visible, XZ: visible, YZ: visible });
+    setSketches(updateSketches);
+    setReferenceGeometry(updateReferences);
+    setSketchViewDocument((current) => current ? { ...current, sketches: updateSketches(current.sketches as LocalSketch[]), referenceGeometry: updateReferences(current.referenceGeometry ?? []) } : current);
+    const support = sketchSupportVisibilityRef.current;
+    if (support?.originPlane) support.originVisible = visible;
+    if (support?.referenceId) support.referenceVisible = visible;
+    if (!visible) { setSelectedSketchId(null); setSelectedReferenceId(null); setSelectedPlane(null); }
+  };
   const toggleOriginPlaneVisibility = (plane: "XY" | "XZ" | "YZ") => setOriginPlanesVisible((visible) => ({ ...visible, [plane]: !visible[plane] }));
   const toggleReferenceVisibility = (id: string) => setReferenceGeometry((items) => items.map((reference) => reference.id === id ? { ...reference, visible: reference.visible === false } : reference));
   const requestReferenceGeometry = (type: ReferenceTool) => {
@@ -685,7 +731,7 @@ export default function Home() {
       <section className="model-command-group"><b>Create</b><div><button className={`tool ${editingSketchId || sketchSupportPicking ? "active" : ""}`} onClick={requestNewSketch}><span className="tool-icon sketch-icon" />{sketchSupportPicking ? "Select Support" : "New Sketch"}</button><button className={`tool ${profileDialog === "extrude" ? "active" : ""}`} onClick={() => requestFeature("extrude")}><span className="tool-icon extrude-icon" />Extrude</button><button className={`tool ${profileDialog === "revolve" ? "active" : ""}`} onClick={() => requestFeature("revolve")}><span className="tool-icon revolve-icon" />Revolve</button></div></section>
       <section className="model-command-group"><b>Modify</b><div><button className={`tool ${bodyFeatureTool === "fillet" ? "active" : ""}`} disabled={!bodyIds.length} title="Round selected solid edges" onClick={() => requestBodyFeature("fillet")}><span className="tool-icon fillet-icon" />Fillet</button><button className={`tool ${bodyFeatureTool === "chamfer" ? "active" : ""}`} disabled={!bodyIds.length} title="Bevel selected solid edges" onClick={() => requestBodyFeature("chamfer")}><span className="tool-icon chamfer-icon" />Chamfer</button><button className={`tool ${bodyFeatureTool === "draft" ? "active" : ""}`} disabled={!bodyIds.length} title="Taper faces from a neutral plane" onClick={() => requestBodyFeature("draft")}><span className="tool-icon draft-icon" />Draft</button><button className={`tool ${bodyFeatureTool === "shell" ? "active" : ""}`} disabled={!bodyIds.length} title="Hollow a solid and remove selected opening faces" onClick={() => requestBodyFeature("shell")}><span className="tool-icon shell-icon" />Shell</button></div></section>
       <section className="model-command-group geometry-command-group"><b>Geometry</b><div><button className={`tool ${referenceDraft?.type === "plane" ? "active" : ""}`} title="Create an offset or coincident reference plane" onClick={() => requestReferenceGeometry("plane")}><span className="tool-icon ref-plane-icon" />Plane</button><button className={`tool ${referenceDraft?.type === "axis" ? "active" : ""}`} title="Create an axis from any edge or the center of a circular or toroidal face" onClick={() => requestReferenceGeometry("axis")}><span className="tool-icon ref-axis-icon" />Axis</button><button className={`tool ${referenceDraft?.type === "point" ? "active" : ""}`} title="Create a point from a face center, edge midpoint, or XYZ values" onClick={() => requestReferenceGeometry("point")}><span className="tool-icon ref-point-icon" />Point</button></div></section>
-      <section className="model-command-group view-command-group"><b>View</b><div><button className="tool" title="Fit the complete model to the current view (F)" aria-label="Fit model to view" onClick={() => setFitViewRequest((request) => request + 1)}><span className="tool-icon fit-view-icon">⌗</span>Fit <kbd>F</kbd></button></div></section>
+      <section className="model-command-group view-command-group"><b>View</b><div><button className="tool" title="Fit the complete model to the current view (F)" aria-label="Fit model to view" onClick={() => setFitViewRequest((request) => request + 1)}><span className="tool-icon fit-view-icon">⌗</span>Fit <kbd>F</kbd></button><button className={`tool ${anySolidGeometryVisible ? "" : "active"}`} disabled={!bodyIds.length} aria-pressed={!anySolidGeometryVisible} title={`${anySolidGeometryVisible ? "Hide" : "Show"} all solid geometry`} aria-label={`${anySolidGeometryVisible ? "Hide" : "Show"} all solid geometry`} onClick={toggleAllSolidGeometry}><span className="tool-icon solids-visibility-icon" />Solids</button><button className={`tool ${anyDatumOrSketchVisible ? "" : "active"}`} aria-pressed={!anyDatumOrSketchVisible} title={`${anyDatumOrSketchVisible ? "Hide" : "Show"} all datums and sketches`} aria-label={`${anyDatumOrSketchVisible ? "Hide" : "Show"} all datums and sketches`} onClick={toggleAllDatumsAndSketches}><span className="tool-icon datums-visibility-icon" />Datums</button></div></section>
       <span className="ribbon-rule" /><button className="tool muted" disabled>Undo</button><button className="tool muted" disabled>Redo</button>
     </nav>
     <section className={`workspace ${propertiesCollapsed ? "properties-collapsed" : ""}`}>
@@ -699,7 +745,7 @@ export default function Home() {
             <input className="tree-visibility" type="checkbox" checked={feature.visible !== false} aria-label={`${feature.visible === false ? "Show" : "Hide"} ${feature.name}`} title={`${feature.visible === false ? "Show" : "Hide"} ${feature.name}`} onChange={() => toggleFeatureVisibility(feature.id)} />
             <button type="button" className="tree-button context-enabled" onClick={() => { setSelectedFeatureId(feature.id); setSelectedReferenceId(null); setSelectedSketchId(null); setSelectedEdges([]); setSelectedBodyId(null); setSelectedPlane(null); setSketchSupportPicking(false); }} onDoubleClick={() => editFeature(feature.id)} onContextMenu={(event) => openContext(event, "feature", feature.id)}><span className={`feature-icon feature-${feature.type}`}>{featureGlyph(feature)}</span>{feature.name}<small className="tree-support">{featureSummary(feature, globalSettings.unitSystem)}</small></button>
           </div>
-          {feature.combine === "new" && feature.bodyId && <button className={`tree-row grandchild tree-button body-row operation-body-row ${selectedBodyId === feature.bodyId ? "selected" : ""}`} aria-label={bodyName(feature.bodyId)} onClick={() => { setSelectedBodyId(feature.bodyId!); setSelectedReferenceId(null); setSelectedFace(null); setSelectedPlane(null); setSelectedSketchId(null); setSelectedFeatureId(null); setSketchSupportPicking(false); }} onContextMenu={(event) => openContext(event, "body", feature.bodyId!)}><span className="body-icon">▰</span>{bodyName(feature.bodyId)}<small className="tree-support">from {feature.name}</small></button>}
+          {feature.combine === "new" && feature.bodyId && <div className={`tree-row grandchild tree-feature-item operation-body-row ${selectedBodyId === feature.bodyId ? "selected" : ""} ${bodyIsVisible(feature.bodyId) ? "" : "hidden-feature"}`}><input className="tree-visibility" type="checkbox" checked={bodyIsVisible(feature.bodyId)} aria-label={`${bodyIsVisible(feature.bodyId) ? "Hide" : "Show"} ${bodyName(feature.bodyId)}`} title={`${bodyIsVisible(feature.bodyId) ? "Hide" : "Show"} ${bodyName(feature.bodyId)}`} onChange={() => toggleBodyVisibility(feature.bodyId!)} /><button type="button" className="tree-button body-row context-enabled" aria-label={bodyName(feature.bodyId)} onClick={() => { setSelectedBodyId(feature.bodyId!); setSelectedReferenceId(null); setSelectedFace(null); setSelectedPlane(null); setSelectedSketchId(null); setSelectedFeatureId(null); setSketchSupportPicking(false); }} onDoubleClick={() => setRenameDialog({ type: "body", id: feature.bodyId!, value: bodyName(feature.bodyId!) })} onContextMenu={(event) => openContext(event, "body", feature.bodyId!)}><span className="body-icon">▰</span>{bodyName(feature.bodyId)}<small className="tree-support">from {feature.name}</small></button></div>}
         </div>)}
       </aside>
       <section className={`viewport ${editingSketch ? "sketch-mode" : ""}`} aria-label={editingSketch ? "Parametric 2D sketcher" : "Interactive 3D viewport"}>
@@ -801,7 +847,7 @@ export default function Home() {
       <div className="context-title">{contextMenu.type === "sketch" ? sketches.find((sketch) => sketch.id === contextMenu.id)?.name : contextMenu.type === "feature" ? features.find((feature) => feature.id === contextMenu.id)?.name : contextMenu.type === "body" ? bodyName(contextMenu.id) : referenceGeometry.find((reference) => reference.id === contextMenu.id)?.name}</div>
       {contextMenu.type === "sketch" && <><button onClick={() => { editSketch(contextMenu.id); setContextMenu(null); }}>Edit sketch</button><button onClick={() => { setPlaneDialog({ mode: "edit", sketchId: contextMenu.id }); setContextMenu(null); }}>Change plane or face</button></>}
       {contextMenu.type === "feature" && <><button onClick={() => editFeature(contextMenu.id)}>Edit feature</button><button onClick={() => { const feature = features.find((item) => item.id === contextMenu.id); if (feature) setRenameDialog({ type: "feature", id: feature.id, value: feature.name }); setContextMenu(null); }}>Rename feature</button>{features.find((feature) => feature.id === contextMenu.id)?.bodyId && <button onClick={() => { const feature = features.find((item) => item.id === contextMenu.id); if (feature?.bodyId) setRenameDialog({ type: "body", id: feature.bodyId, value: bodyName(feature.bodyId) }); setContextMenu(null); }}>Rename resulting body</button>}</>}
-      {contextMenu.type === "body" && <button onClick={() => { setRenameDialog({ type: "body", id: contextMenu.id, value: bodyName(contextMenu.id) }); setContextMenu(null); }}>Rename body</button>}
+      {contextMenu.type === "body" && <><button onClick={() => { toggleBodyVisibility(contextMenu.id); setContextMenu(null); }}>{bodyIsVisible(contextMenu.id) ? "Hide body" : "Show body"}</button><button onClick={() => { setRenameDialog({ type: "body", id: contextMenu.id, value: bodyName(contextMenu.id) }); setContextMenu(null); }}>Rename body</button></>}
       {contextMenu.type === "reference" && <><button onClick={() => { editReferenceGeometry(contextMenu.id); setContextMenu(null); }}>Edit reference geometry</button><button className="delete-action" onClick={() => { deleteReferenceGeometry(contextMenu.id); setContextMenu(null); }}>Delete reference and dependents</button></>}
       {(contextMenu.type === "sketch" || contextMenu.type === "feature") && <button className="delete-action" onClick={() => deleteFromTree(contextMenu.type, contextMenu.id)}>Delete {contextMenu.type}{contextMenu.type === "feature" ? " and later features" : " and dependents"}</button>}
     </div>}

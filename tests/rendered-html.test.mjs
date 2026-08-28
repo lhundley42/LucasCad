@@ -31,6 +31,8 @@ test("modeling ribbon starts sketches and validates profiles before features", a
   assert.match(page, /displayedFeatureDraft/);
   assert.match(page, /toggleSketchVisibility/);
   assert.match(page, /toggleFeatureVisibility/);
+  assert.match(page, /toggleBodyVisibility/);
+  assert.match(page, /bodyVisible/);
   assert.match(page, /className="tree-visibility"/);
   assert.match(page, /checked=\{sketch\.visible !== false\}/);
   assert.match(page, /checked=\{feature\.visible !== false\}/);
@@ -426,8 +428,8 @@ test("model navigation uses an unrestricted picked-pivot virtual trackball", asy
   assert.match(viewport, /window\.document\.createElement\("div"\)/);
   assert.doesNotMatch(viewport, /const viewMenu = document\.createElement/);
   assert.match(viewport, /pivotIndicator/);
-  assert.match(viewport, /x: -offset\.dot\(activeFrame\.xDir\), y: -offset\.dot\(activeFrame\.yDir\)/);
-  assert.match(viewport, /addScaledVector\(activeFrame\.xDir, -initialView\.center\.x\)\.addScaledVector\(activeFrame\.yDir, -initialView\.center\.y\)/);
+  assert.match(viewport, /x: offset\.dot\(activeFrame\.xDir\), y: offset\.dot\(activeFrame\.yDir\)/);
+  assert.match(viewport, /addScaledVector\(activeFrame\.xDir, initialView\.center\.x\)\.addScaledVector\(activeFrame\.yDir, initialView\.center\.y\)/);
   assert.match(css, /\.model-view-context-menu/);
 });
 
@@ -572,11 +574,13 @@ test("model usability pass preserves rebuild context and exposes fit, naming, an
   assert.match(page, /visible: false/);
   assert.match(page, /Rename resulting body/);
   assert.match(page, /operation-body-row/);
+  assert.match(page, /Hide" : "Show"} all solid geometry/);
+  assert.match(page, /Hide" : "Show"} all datums and sketches/);
   assert.match(page, /Math\.min\(event\.clientY, window\.innerHeight/);
   assert.match(page, /formatLength\(feature\.thickness/);
   assert.match(viewport, /viewport-rebuild-snapshot/);
   assert.match(viewport, /describeRebuildFailure/);
   assert.match(viewport, /fitModelToView/);
-  assert.match(viewport, /camera\.up\.copy\(activeFrame\.yDir\);/);
+  assert.match(viewport, /camera\.up\.copy\(activeFrame\.yDir\)\.multiplyScalar\(-1\);/);
   assert.match(css, /\.operation-body-row/);
 });

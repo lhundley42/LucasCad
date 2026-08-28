@@ -33,7 +33,7 @@ export type RevolveAxisReference =
   | { kind: "reference-axis"; referenceId: string; label: string };
 export type ChamferMethod = "symmetric" | "angle-distance" | "distance-distance";
 export type ChamferParameter = "distance" | "distance2" | "angle";
-export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; combine?: "new" | "union" | "cut"; bodyId?: string; bodyName?: string; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; thickness?: number; outward?: boolean; visible?: boolean };
+export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; combine?: "new" | "union" | "cut"; bodyId?: string; bodyName?: string; bodyVisible?: boolean; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; thickness?: number; outward?: boolean; visible?: boolean };
 export type DocumentRequest = { sketches: SketchRecord[]; features: FeatureRecord[]; referenceGeometry?: ReferenceGeometryRecord[] };
 export type SelectedFace = AxisSelectionMetadata & { id: string; bodyId: string; faceIndex: number; center?: VectorTuple; normal?: VectorTuple; planar?: boolean; draftGroupFaceIndices?: number[] };
 export type SelectedEdge = AxisSelectionMetadata & { id: string; bodyId: string; edgeIndex: number; points?: VectorTuple[]; linear?: boolean };
@@ -291,7 +291,11 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
   const referencePlanePreviewKey = JSON.stringify(referencePlanePreview);
   const selectedEdgeKey = [...selectedEdgeIds].sort().join("|");
   const selectedFaceKey = [...selectedFaceIds].sort().join("|");
-  const hiddenBodyIds = new Set(document.features.filter((feature) => feature.visible === false).map((feature) => feature.bodyId ?? feature.targetBodyId).filter((bodyId): bodyId is string => Boolean(bodyId)));
+  const hiddenBodyIds = new Set(document.features.flatMap((feature) => {
+    const bodyId = feature.bodyId ?? feature.targetBodyId;
+    if (!bodyId) return [];
+    return feature.visible === false || feature.combine === "new" && feature.bodyVisible === false ? [bodyId] : [];
+  }));
   const hiddenBodyKey = [...hiddenBodyIds].sort().join("|");
 
   useEffect(() => {
@@ -460,10 +464,11 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       if (rotated !== lastRotated) { lastRotated = rotated; onSketchRotatedChange?.(rotated); }
       if (rotated) return;
       const offset = controls.target.clone().sub(activeFrame.origin);
-      // Three.js moves the camera opposite the pointer so the model follows the
-      // drag. An SVG viewBox moves its contents opposite its center, so invert
-      // the world offset when handing the same pan to the editable sketch.
-      const next: SketchView = { center: { x: -offset.dot(activeFrame.xDir), y: -offset.dot(activeFrame.yDir) }, zoom: camera.zoom };
+      // The normal sketch camera uses xDir as screen-right and -yDir as
+      // screen-up so its screen coordinates match the SVG canvas (where +Y is
+      // downward). With that shared basis, the camera target and SVG viewBox
+      // center use the same signed local-plane offset.
+      const next: SketchView = { center: { x: offset.dot(activeFrame.xDir), y: offset.dot(activeFrame.yDir) }, zoom: camera.zoom };
       if (Math.abs(next.center.x - lastView.center.x) > 0.001 || Math.abs(next.center.y - lastView.center.y) > 0.001 || Math.abs(next.zoom - lastView.zoom) > 0.0001) {
         lastView = next;
         onSketchViewChange?.(next);
@@ -696,9 +701,12 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
             };
             sketchFrameRef.current = activeFrame;
             const initialView = sketchViewRef.current;
-            const target = activeFrame.origin.clone().addScaledVector(activeFrame.xDir, -initialView.center.x).addScaledVector(activeFrame.yDir, -initialView.center.y);
+            const target = activeFrame.origin.clone().addScaledVector(activeFrame.xDir, initialView.center.x).addScaledVector(activeFrame.yDir, initialView.center.y);
             camera.position.copy(target).addScaledVector(activeFrame.normal, -1000);
-            camera.up.copy(activeFrame.yDir);
+            // SVG sketch coordinates grow downward. Looking from the negative
+            // normal with -yDir up keeps +x right and +y down in both the 2D
+            // editor and the live 3D sketch revealed during orbit.
+            camera.up.copy(activeFrame.yDir).multiplyScalar(-1);
             camera.lookAt(target);
             camera.zoom = Math.max(0.05, Math.min(40, initialView.zoom));
             controls.target.copy(target);

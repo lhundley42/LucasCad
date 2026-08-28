@@ -790,8 +790,13 @@
 .view-command-group .tool { min-width:54px; }
 .view-command-group kbd { margin-left:4px; padding:1px 3px; border:1px solid #465866; border-radius:3px; color:#8297a6; font:8px monospace; }
 .fit-view-icon { display:grid !important; place-items:center; color:#73dcff; font-size:25px; line-height:1; }
+.solids-visibility-icon { width:24px; height:20px; border:2px solid #73dcff; border-radius:3px; transform:skewY(-8deg); box-shadow:inset -6px -5px 0 rgba(65,154,190,.25); }
+.solids-visibility-icon::after { content:""; position:absolute; left:-3px; right:-3px; top:8px; border-top:2px solid #f5b642; transform:rotate(-28deg); }
+.datums-visibility-icon { width:26px; height:22px; }
+.datums-visibility-icon::before,.datums-visibility-icon::after { content:""; position:absolute; inset:3px 1px; border:1px solid #73dcff; transform:skewY(-22deg); }
+.datums-visibility-icon::after { inset:1px 5px; border-color:#58d6c1; transform:skewY(22deg); }
 .feature-tree-block { display:contents; }
-.operation-body-row { padding-left:56px !important; border-left:1px dotted #30414e; }
+.operation-body-row { padding-left:42px !important; border-left:1px dotted #30414e; }
 .operation-body-row .tree-support { margin-left:auto; color:#607484; font-size:9px; }
 .profile-warning-dialog { border-color:#8b6a2d; }
 .profile-warning-dialog .validation-mark { border-color:#bd8b32; background:#3a2b15; color:#ffd378; }
