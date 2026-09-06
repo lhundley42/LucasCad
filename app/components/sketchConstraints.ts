@@ -188,11 +188,14 @@ function pointToSegmentDistance(point: Point, a: Point, b: Point): number {
   return distance(point, { x: a.x + dx * amount, y: a.y + dy * amount });
 }
 
-export function preferredAxisOrSketchLineTarget(point: Point, axis: "x" | "y", entities: SketchEntity[], lineHitTolerance: number): AxisOrSketchLineTarget {
-  const axisDistance = axis === "x" ? Math.abs(point.y) : Math.abs(point.x);
+export function preferredAxisOrSketchLineTarget(point: Point, axis: "x" | "y", entities: SketchEntity[], lineHitTolerance: number, project: (point: Point) => Point = (point) => point): AxisOrSketchLineTarget {
+  point = project(point);
+  const origin = project({ x: 0, y: 0 }), along = project(axis === "x" ? { x: 1, y: 0 } : { x: 0, y: 1 });
+  const dx = along.x - origin.x, dy = along.y - origin.y;
+  const axisDistance = Math.abs(dx * (point.y - origin.y) - dy * (point.x - origin.x)) / Math.max(Math.hypot(dx, dy), 1e-12);
   const nearestLine = entities
     .filter((entity): entity is Extract<SketchEntity, { type: "line" }> => entity.type === "line")
-    .map((entity) => ({ entityId: entity.id, distance: pointToSegmentDistance(point, entity.a, entity.b) }))
+    .map((entity) => ({ entityId: entity.id, distance: pointToSegmentDistance(point, project(entity.a), project(entity.b)) }))
     .filter((candidate) => candidate.distance <= lineHitTolerance)
     .sort((first, second) => first.distance - second.distance)[0];
   return nearestLine && nearestLine.distance <= axisDistance + 1e-6 ? { kind: "line", entityId: nearestLine.entityId } : { kind: "axis", axis };

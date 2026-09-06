@@ -29,3 +29,12 @@ test("metric and imperial display preserve millimeter model values", () => {
   assert.equal(formatLength(3.0479999999999996, "metric"), "3.05 mm");
   assert.equal(formatLength(3.0479999999999996, "imperial"), "0.12 in");
 });
+test("selected solid edges default to a bolder four-pixel highlight and persist independently of sketch hover", () => {
+  assert.equal(DEFAULT_GLOBAL_SETTINGS.selectedEdgeWidthPx, 4);
+  assert.equal(parseGlobalSettings('{"meshQuality":80}').selectedEdgeWidthPx, 4);
+  assert.equal(parseGlobalSettings('{"selectedEdgeWidthPx":7.5}').selectedEdgeWidthPx, 7.5);
+  assert.equal(normalizeGlobalSettings({selectedEdgeWidthPx: 100}).selectedEdgeWidthPx, 10);
+  assert.equal(normalizeGlobalSettings({selectedEdgeWidthPx: 0}).selectedEdgeWidthPx, 1);
+  assert.equal(normalizeGlobalSettings({selectedEdgeWidthPx: NaN}).selectedEdgeWidthPx, 4);
+  assert.equal(normalizeGlobalSettings({selectedEdgeWidthPx: 8}).sketchHighlightWidthPx, 1.2);
+});

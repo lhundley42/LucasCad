@@ -4,6 +4,30 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
+test("loft integrates profile picking, rollback editing, visibility and dependency removal", async () => {
+  const page = await source("app/page.tsx");
+  const viewport = await source("app/components/CadViewport.tsx");
+  assert.match(page, /onClick=\{requestLoft\}/);
+  assert.match(page, /selectableSketchIds=\{!editingSketch && \(profileDialog \|\| loftDraft\)/);
+  assert.match(page, /if \(loftDraft\) \{ if \(profileCandidate\) selectProfileById\(sketch.id\)/);
+  assert.match(page, /current\.sketchIds\.includes\(sketchId\)/);
+  assert.match(page, /sketchIds: \[\.\.\.\(feature\.sketchIds \?\? \[\]\)\]/);
+  assert.match(page, /ruled: feature\.ruled \?\? false/);
+  assert.match(page, /loftValidatedKey !== loftCandidateKey/);
+  assert.match(page, /feature\.sketchIds\?\.includes\(id\)/);
+  assert.match(page, /feature\.sketchIds\?\.some\(\(sketchId\) => dependentSketchIds.has\(sketchId\)\)/);
+  assert.match(viewport, /visible !== false\) \|\| selectableSketchIds\?\.includes\(item.id\)/);
+  const fit = viewport.slice(viewport.indexOf("const fitModelToView ="), viewport.indexOf("let cachedData:"));
+  assert.match(fit, /data\.previewFaces/);
+  assert.match(fit, /data\.sketches\.filter/);
+  assert.doesNotMatch(fit, /!data.faces.length\) return/);
+  const panel = await source("app/components/LoftPanel.tsx");
+  const styles = await source("app/dialogs.css");
+  assert.match(panel, /className="loft-fields"/);
+  assert.match(styles, /\.loft-fields\{min-height:0;overflow:auto/);
+  assert.match(styles, /\.loft-flyout>\.dialog-actions\{flex-shrink:0\}/);
+});
+
 async function source(path) {
   return readFile(new URL(path, root), "utf8");
 }
@@ -80,7 +104,7 @@ test("modeling ribbon starts sketches and validates profiles before features", a
   assert.match(page, /setProjectFileName\(file\.name/);
   assert.match(page, /className="document-name" title=\{projectFileName\}>\{projectFileName\}/);
   assert.match(page, /Open LucasCad project file/);
-  assert.match(page, /serializeLucasCadProject\(cadDocument\)/);
+  assert.match(page, /serializeLucasCadProject\(cadDocument, globalSettings\)/);
 });
 
 test("sketcher exposes profile tools, editable dimensions, and draggable controls", async () => {
@@ -210,7 +234,7 @@ test("LucasCad exposes SolidWorks-style fillet, chamfer, neutral-plane draft, an
   for (const tool of ["fillet", "chamfer", "draft", "shell"]) {
     assert.match(page, new RegExp(`requestBodyFeature\\(\\"${tool}\\"\\)`));
   }
-  assert.match(page, /Constant-radius fillet/);
+  assert.match(page, /<FilletPanel/);
   assert.match(page, /Edge chamfer/);
   assert.match(page, /Angle \/ distance/);
   assert.match(page, /Distance \/ distance/);
@@ -428,15 +452,16 @@ test("model navigation uses an unrestricted picked-pivot virtual trackball", asy
   assert.match(viewport, /window\.document\.createElement\("div"\)/);
   assert.doesNotMatch(viewport, /const viewMenu = document\.createElement/);
   assert.match(viewport, /pivotIndicator/);
-  assert.match(viewport, /x: offset\.dot\(activeFrame\.xDir\), y: offset\.dot\(activeFrame\.yDir\)/);
+  assert.match(viewport, /sketchPlaneProjection\(camera, controls.target, activeFrame\)/);
   assert.match(viewport, /addScaledVector\(activeFrame\.xDir, initialView\.center\.x\)\.addScaledVector\(activeFrame\.yDir, initialView\.center\.y\)/);
   assert.match(css, /\.model-view-context-menu/);
 });
 
-test("normal sketch view renders one editable copy and reserves the live 3D copy for rotation", async () => {
+test("sketch view retains one projected editable copy in every orientation", async () => {
   const viewport = await source("app/components/CadViewport.tsx");
   assert.match(viewport, /liveSketchLayer\.visible = false/);
-  assert.match(viewport, /liveSketchLayer\.visible = rotated/);
+  assert.doesNotMatch(viewport, /liveSketchLayer\.visible = rotated/);
+  assert.match(viewport, /snapToNearestSketchNormal\(camera, controls.target, activeFrame\)/);
 });
 
 test("NX-style trim supports spline intersections and drag-across gestures", async () => {
@@ -548,7 +573,7 @@ test("3D viewport rebuilds the document and displays unconsumed sketches", async
   assert.match(viewport, /onSelectSketch/);
   assert.match(viewport, /selectableSketch/);
   assert.match(viewport, /showModelGrid/);
-  assert.match(viewport, /if \(showModelGrid\).*GridHelper/);
+  assert.match(viewport, /grid.visible = !sketchMode && showModelGrid/);
   assert.match(viewport, /extrusionArrowHits/);
   assert.match(viewport, /originalDistance.*pendingDistance/);
   assert.match(viewport, /onFeaturePreviewDistanceChange/);
@@ -578,9 +603,34 @@ test("model usability pass preserves rebuild context and exposes fit, naming, an
   assert.match(page, /Hide" : "Show"} all datums and sketches/);
   assert.match(page, /Math\.min\(event\.clientY, window\.innerHeight/);
   assert.match(page, /formatLength\(feature\.thickness/);
-  assert.match(viewport, /viewport-rebuild-snapshot/);
+  assert.doesNotMatch(viewport, /toDataURL|viewport-rebuild-snapshot/);
+  assert.match(viewport, /const paintSelection =/);
+  assert.match(viewport, /requests.request\(documentRequestKey\)/);
   assert.match(viewport, /describeRebuildFailure/);
   assert.match(viewport, /fitModelToView/);
   assert.match(viewport, /camera\.up\.copy\(activeFrame\.yDir\)\.multiplyScalar\(-1\);/);
   assert.match(css, /\.operation-body-row/);
+});
+test("application and file controls follow the LucasCad banner before the filename and status", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const header = source.slice(source.indexOf('<header className="titlebar">'), source.indexOf('<nav className="ribbon"'));
+  const positions = ['<strong>LucasCad</strong>', 'aria-label="Settings"', 'void openProject()', 'void saveProject()', 'className="export-control"', 'className="document-name"', 'kernel-pill'].map(text => header.indexOf(text));
+  assert.ok(positions.every(position => position >= 0));
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.title-actions\{margin-left:8px;/);
+  assert.match(css, /\.settings-menu\{[^}]*left:0;right:auto/);
+  assert.match(css, /\.export-menu\{[^}]*left:0;right:auto/);
+  assert.doesNotMatch(css, /\.title-actions>button:first-of-type\{display:none\}/);
+});
+test("View includes an independent show/hide all sketches command that also updates the sketch editing snapshot", async () => {
+  const page = await source("app/page.tsx");
+  assert.match(page, /onClick=\{toggleAllSketches\}/);
+  assert.match(page, /disabled=\{!sketches.length\} aria-pressed=\{!anySketchVisible\}/);
+  const action = page.slice(page.indexOf("const toggleAllSketches ="), page.indexOf("const toggleAllDatumsAndSketches ="));
+  assert.match(action, /const visible = !anySketchVisible/);
+  assert.match(action, /setSketches/);
+  assert.match(action, /setSketchViewDocument/);
+  assert.doesNotMatch(action, /setFeatures|setReferenceGeometry|setOriginCsyVisible|setOriginPlanesVisible/);
 });

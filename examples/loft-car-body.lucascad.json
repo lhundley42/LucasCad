@@ -1,0 +1,671 @@
+{
+  "schemaVersion": 2,
+  "units": "mm",
+  "referenceGeometry": [
+    {
+      "id": "station-0",
+      "type": "plane",
+      "name": "Station 1",
+      "origin": [
+        -100,
+        0,
+        0
+      ],
+      "normal": [
+        1,
+        0,
+        0
+      ],
+      "xDir": [
+        0,
+        1,
+        0
+      ],
+      "sourceLabel": "YZ offset -100 mm",
+      "visible": false
+    },
+    {
+      "id": "station-1",
+      "type": "plane",
+      "name": "Station 2",
+      "origin": [
+        -65,
+        0,
+        0
+      ],
+      "normal": [
+        1,
+        0,
+        0
+      ],
+      "xDir": [
+        0,
+        1,
+        0
+      ],
+      "sourceLabel": "YZ offset -65 mm",
+      "visible": false
+    },
+    {
+      "id": "station-2",
+      "type": "plane",
+      "name": "Station 3",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "normal": [
+        1,
+        0,
+        0
+      ],
+      "xDir": [
+        0,
+        1,
+        0
+      ],
+      "sourceLabel": "YZ offset 0 mm",
+      "visible": false
+    },
+    {
+      "id": "station-3",
+      "type": "plane",
+      "name": "Station 4",
+      "origin": [
+        65,
+        0,
+        0
+      ],
+      "normal": [
+        1,
+        0,
+        0
+      ],
+      "xDir": [
+        0,
+        1,
+        0
+      ],
+      "sourceLabel": "YZ offset 65 mm",
+      "visible": false
+    },
+    {
+      "id": "station-4",
+      "type": "plane",
+      "name": "Station 5",
+      "origin": [
+        100,
+        0,
+        0
+      ],
+      "normal": [
+        1,
+        0,
+        0
+      ],
+      "xDir": [
+        0,
+        1,
+        0
+      ],
+      "sourceLabel": "YZ offset 100 mm",
+      "visible": false
+    }
+  ],
+  "sketches": [
+    {
+      "id": "section-0",
+      "name": "Body section 1",
+      "plane": {
+        "kind": "reference-plane",
+        "referenceId": "station-0"
+      },
+      "entities": [
+        {
+          "id": "s0-line0",
+          "type": "line",
+          "a": {
+            "x": -18.400000000000002,
+            "y": 0
+          },
+          "b": {
+            "x": 18.400000000000002,
+            "y": 0
+          }
+        },
+        {
+          "id": "s0-line1",
+          "type": "line",
+          "a": {
+            "x": 18.400000000000002,
+            "y": 0
+          },
+          "b": {
+            "x": 23,
+            "y": 4
+          }
+        },
+        {
+          "id": "s0-line2",
+          "type": "line",
+          "a": {
+            "x": 23,
+            "y": 4
+          },
+          "b": {
+            "x": 23,
+            "y": 7.800000000000001
+          }
+        },
+        {
+          "id": "s0-line3",
+          "type": "line",
+          "a": {
+            "x": 23,
+            "y": 7.800000000000001
+          },
+          "b": {
+            "x": 16.099999999999998,
+            "y": 12
+          }
+        },
+        {
+          "id": "s0-line4",
+          "type": "line",
+          "a": {
+            "x": 16.099999999999998,
+            "y": 12
+          },
+          "b": {
+            "x": -16.099999999999998,
+            "y": 12
+          }
+        },
+        {
+          "id": "s0-line5",
+          "type": "line",
+          "a": {
+            "x": -16.099999999999998,
+            "y": 12
+          },
+          "b": {
+            "x": -23,
+            "y": 7.800000000000001
+          }
+        },
+        {
+          "id": "s0-line6",
+          "type": "line",
+          "a": {
+            "x": -23,
+            "y": 7.800000000000001
+          },
+          "b": {
+            "x": -23,
+            "y": 4
+          }
+        },
+        {
+          "id": "s0-line7",
+          "type": "line",
+          "a": {
+            "x": -23,
+            "y": 4
+          },
+          "b": {
+            "x": -18.400000000000002,
+            "y": 0
+          }
+        }
+      ],
+      "visible": false
+    },
+    {
+      "id": "section-1",
+      "name": "Body section 2",
+      "plane": {
+        "kind": "reference-plane",
+        "referenceId": "station-1"
+      },
+      "entities": [
+        {
+          "id": "s1-line0",
+          "type": "line",
+          "a": {
+            "x": -29.6,
+            "y": 0
+          },
+          "b": {
+            "x": 29.6,
+            "y": 0
+          }
+        },
+        {
+          "id": "s1-line1",
+          "type": "line",
+          "a": {
+            "x": 29.6,
+            "y": 0
+          },
+          "b": {
+            "x": 37,
+            "y": 4
+          }
+        },
+        {
+          "id": "s1-line2",
+          "type": "line",
+          "a": {
+            "x": 37,
+            "y": 4
+          },
+          "b": {
+            "x": 37,
+            "y": 14.3
+          }
+        },
+        {
+          "id": "s1-line3",
+          "type": "line",
+          "a": {
+            "x": 37,
+            "y": 14.3
+          },
+          "b": {
+            "x": 25.9,
+            "y": 22
+          }
+        },
+        {
+          "id": "s1-line4",
+          "type": "line",
+          "a": {
+            "x": 25.9,
+            "y": 22
+          },
+          "b": {
+            "x": -25.9,
+            "y": 22
+          }
+        },
+        {
+          "id": "s1-line5",
+          "type": "line",
+          "a": {
+            "x": -25.9,
+            "y": 22
+          },
+          "b": {
+            "x": -37,
+            "y": 14.3
+          }
+        },
+        {
+          "id": "s1-line6",
+          "type": "line",
+          "a": {
+            "x": -37,
+            "y": 14.3
+          },
+          "b": {
+            "x": -37,
+            "y": 4
+          }
+        },
+        {
+          "id": "s1-line7",
+          "type": "line",
+          "a": {
+            "x": -37,
+            "y": 4
+          },
+          "b": {
+            "x": -29.6,
+            "y": 0
+          }
+        }
+      ],
+      "visible": false
+    },
+    {
+      "id": "section-2",
+      "name": "Body section 3",
+      "plane": {
+        "kind": "reference-plane",
+        "referenceId": "station-2"
+      },
+      "entities": [
+        {
+          "id": "s2-line0",
+          "type": "line",
+          "a": {
+            "x": -31.200000000000003,
+            "y": 0
+          },
+          "b": {
+            "x": 31.200000000000003,
+            "y": 0
+          }
+        },
+        {
+          "id": "s2-line1",
+          "type": "line",
+          "a": {
+            "x": 31.200000000000003,
+            "y": 0
+          },
+          "b": {
+            "x": 39,
+            "y": 4
+          }
+        },
+        {
+          "id": "s2-line2",
+          "type": "line",
+          "a": {
+            "x": 39,
+            "y": 4
+          },
+          "b": {
+            "x": 39,
+            "y": 17.55
+          }
+        },
+        {
+          "id": "s2-line3",
+          "type": "line",
+          "a": {
+            "x": 39,
+            "y": 17.55
+          },
+          "b": {
+            "x": 27.299999999999997,
+            "y": 27
+          }
+        },
+        {
+          "id": "s2-line4",
+          "type": "line",
+          "a": {
+            "x": 27.299999999999997,
+            "y": 27
+          },
+          "b": {
+            "x": -27.299999999999997,
+            "y": 27
+          }
+        },
+        {
+          "id": "s2-line5",
+          "type": "line",
+          "a": {
+            "x": -27.299999999999997,
+            "y": 27
+          },
+          "b": {
+            "x": -39,
+            "y": 17.55
+          }
+        },
+        {
+          "id": "s2-line6",
+          "type": "line",
+          "a": {
+            "x": -39,
+            "y": 17.55
+          },
+          "b": {
+            "x": -39,
+            "y": 4
+          }
+        },
+        {
+          "id": "s2-line7",
+          "type": "line",
+          "a": {
+            "x": -39,
+            "y": 4
+          },
+          "b": {
+            "x": -31.200000000000003,
+            "y": 0
+          }
+        }
+      ],
+      "visible": false
+    },
+    {
+      "id": "section-3",
+      "name": "Body section 4",
+      "plane": {
+        "kind": "reference-plane",
+        "referenceId": "station-3"
+      },
+      "entities": [
+        {
+          "id": "s3-line0",
+          "type": "line",
+          "a": {
+            "x": -28.8,
+            "y": 0
+          },
+          "b": {
+            "x": 28.8,
+            "y": 0
+          }
+        },
+        {
+          "id": "s3-line1",
+          "type": "line",
+          "a": {
+            "x": 28.8,
+            "y": 0
+          },
+          "b": {
+            "x": 36,
+            "y": 4
+          }
+        },
+        {
+          "id": "s3-line2",
+          "type": "line",
+          "a": {
+            "x": 36,
+            "y": 4
+          },
+          "b": {
+            "x": 36,
+            "y": 14.950000000000001
+          }
+        },
+        {
+          "id": "s3-line3",
+          "type": "line",
+          "a": {
+            "x": 36,
+            "y": 14.950000000000001
+          },
+          "b": {
+            "x": 25.2,
+            "y": 23
+          }
+        },
+        {
+          "id": "s3-line4",
+          "type": "line",
+          "a": {
+            "x": 25.2,
+            "y": 23
+          },
+          "b": {
+            "x": -25.2,
+            "y": 23
+          }
+        },
+        {
+          "id": "s3-line5",
+          "type": "line",
+          "a": {
+            "x": -25.2,
+            "y": 23
+          },
+          "b": {
+            "x": -36,
+            "y": 14.950000000000001
+          }
+        },
+        {
+          "id": "s3-line6",
+          "type": "line",
+          "a": {
+            "x": -36,
+            "y": 14.950000000000001
+          },
+          "b": {
+            "x": -36,
+            "y": 4
+          }
+        },
+        {
+          "id": "s3-line7",
+          "type": "line",
+          "a": {
+            "x": -36,
+            "y": 4
+          },
+          "b": {
+            "x": -28.8,
+            "y": 0
+          }
+        }
+      ],
+      "visible": false
+    },
+    {
+      "id": "section-4",
+      "name": "Body section 5",
+      "plane": {
+        "kind": "reference-plane",
+        "referenceId": "station-4"
+      },
+      "entities": [
+        {
+          "id": "s4-line0",
+          "type": "line",
+          "a": {
+            "x": -20.8,
+            "y": 0
+          },
+          "b": {
+            "x": 20.8,
+            "y": 0
+          }
+        },
+        {
+          "id": "s4-line1",
+          "type": "line",
+          "a": {
+            "x": 20.8,
+            "y": 0
+          },
+          "b": {
+            "x": 26,
+            "y": 4
+          }
+        },
+        {
+          "id": "s4-line2",
+          "type": "line",
+          "a": {
+            "x": 26,
+            "y": 4
+          },
+          "b": {
+            "x": 26,
+            "y": 8.450000000000001
+          }
+        },
+        {
+          "id": "s4-line3",
+          "type": "line",
+          "a": {
+            "x": 26,
+            "y": 8.450000000000001
+          },
+          "b": {
+            "x": 18.2,
+            "y": 13
+          }
+        },
+        {
+          "id": "s4-line4",
+          "type": "line",
+          "a": {
+            "x": 18.2,
+            "y": 13
+          },
+          "b": {
+            "x": -18.2,
+            "y": 13
+          }
+        },
+        {
+          "id": "s4-line5",
+          "type": "line",
+          "a": {
+            "x": -18.2,
+            "y": 13
+          },
+          "b": {
+            "x": -26,
+            "y": 8.450000000000001
+          }
+        },
+        {
+          "id": "s4-line6",
+          "type": "line",
+          "a": {
+            "x": -26,
+            "y": 8.450000000000001
+          },
+          "b": {
+            "x": -26,
+            "y": 4
+          }
+        },
+        {
+          "id": "s4-line7",
+          "type": "line",
+          "a": {
+            "x": -26,
+            "y": 4
+          },
+          "b": {
+            "x": -20.8,
+            "y": 0
+          }
+        }
+      ],
+      "visible": false
+    }
+  ],
+  "features": [
+    {
+      "id": "loft-car",
+      "name": "Body envelope — five-section loft",
+      "type": "loft",
+      "sketchIds": [
+        "section-0",
+        "section-1",
+        "section-2",
+        "section-3",
+        "section-4"
+      ],
+      "ruled": false,
+      "combine": "new",
+      "bodyId": "car-body",
+      "bodyName": "Car body envelope"
+    }
+  ]
+}

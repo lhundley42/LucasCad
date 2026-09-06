@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "metadata": {"settings":{"theme":{"preset":"tron","backgroundStyle":"radial","colors":{"backgroundTop":"#26313c","backgroundMiddle":"#141b23","backgroundBottom":"#0b1016","model":"#3097bd","selectedModel":"#4fb9df","modelEdge":"#9edcf2","selection":"#ff9700","grid":"#263644","gridMajor":"#3e5264","sketchBackground":"#0d1319","sketchGrid":"#1a2731","sketchGridMajor":"#263944","sketch":"#55b9e8","sketchHighlight":"#f6b94d","axisX":"#5d3337","axisY":"#315c49","viewText":"#91a6b8"}},"selectedEdgeWidthPx":4,"meshQuality":40,"sketchDimensionTextScale":0.5,"sketchNodeDiameterPx":4,"sketchHighlightWidthPx":1.2,"sketchGridSizeMm":8,"unitSystem":"metric"}},
+  "units": "mm",
+  "sketches": [
+    { "id": "handle-profile", "name": "Tube profile - diameter 16, wall 3 mm", "plane": "XY", "visible": false, "entities": [
+      { "id": "outside", "type": "circle", "c": { "x": 0, "y": 0 }, "r": 8 },
+      { "id": "inside", "type": "circle", "c": { "x": 0, "y": 0 }, "r": 5 }
+    ] },
+    { "id": "handle-path", "name": "U path - 55 mm legs, R30 bend", "plane": "XZ", "visible": false, "entities": [
+      { "id": "left-leg", "type": "line", "a": { "x": 0, "y": 0 }, "b": { "x": 0, "y": 55 } },
+      { "id": "top-bend", "type": "arc", "a": { "x": 0, "y": 55 }, "through": { "x": 30, "y": 85 }, "b": { "x": 60, "y": 55 } },
+      { "id": "right-leg", "type": "line", "a": { "x": 60, "y": 55 }, "b": { "x": 60, "y": 0 } }
+    ] }
+  ],
+  "features": [
+    { "id": "handle-sweep", "name": "Sweep - hollow U handle", "type": "sweep", "sketchIds": ["handle-profile", "handle-path"], "orientation": "follow", "transition": "round", "combine": "new", "bodyId": "handle-body", "bodyName": "Hollow swept handle" }
+  ],
+  "referenceGeometry": []
+}

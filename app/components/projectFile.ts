@@ -1,4 +1,7 @@
+import { DEFAULT_GLOBAL_SETTINGS, normalizeGlobalSettings, type GlobalAppSettings } from "./appSettings.ts";
+
 export type LucasCadProjectFile = {
+  metadata?: { settings: GlobalAppSettings };
   schemaVersion: number;
   units: "mm";
   sketches: unknown[];
@@ -29,11 +32,11 @@ export function parseLucasCadProject(serialized: string): LucasCadProjectFile {
   sketches.forEach((sketch, index) => { if (!Array.isArray((sketch as Record<string, unknown>).entities)) throw new Error(`Sketches item ${index + 1} has invalid entities.`); });
   const features = requireRecords(parsed.features, "Features", ["id", "type"]);
   const referenceGeometry = parsed.referenceGeometry === undefined ? [] : requireRecords(parsed.referenceGeometry, "Reference geometry", ["id", "type"]);
-  return { schemaVersion, units: "mm", sketches, features, referenceGeometry };
+  return { schemaVersion, units: "mm", sketches, features, referenceGeometry, ...(isRecord(parsed.metadata) && isRecord(parsed.metadata.settings) ? { metadata: { settings: normalizeGlobalSettings(parsed.metadata.settings) } } : {}) };
 }
 
-export function serializeLucasCadProject(document: { sketches: unknown[]; features: unknown[]; referenceGeometry?: unknown[] }) {
-  return JSON.stringify({ schemaVersion: 2, units: "mm", sketches: document.sketches, features: document.features, referenceGeometry: document.referenceGeometry ?? [] }, null, 2);
+export function serializeLucasCadProject(document: { sketches: unknown[]; features: unknown[]; referenceGeometry?: unknown[] }, settings: GlobalAppSettings = DEFAULT_GLOBAL_SETTINGS) {
+  return JSON.stringify({ metadata: { settings: normalizeGlobalSettings(settings) }, schemaVersion: 2, units: "mm", sketches: document.sketches, features: document.features, referenceGeometry: document.referenceGeometry ?? [] }, null, 2);
 }
 
 export function normalizeLucasCadFileName(value: string) {

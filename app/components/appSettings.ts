@@ -1,4 +1,9 @@
+import { normalizeTheme, THEME_PRESETS, type ThemeSettings } from "./themes.ts";
+
 export type GlobalAppSettings = {
+  theme: ThemeSettings;
+  selectedEdgeWidthPx: number;
+  meshQuality: number;
   sketchDimensionTextScale: number;
   sketchNodeDiameterPx: number;
   sketchHighlightWidthPx: number;
@@ -9,6 +14,9 @@ export type GlobalAppSettings = {
 export const GLOBAL_SETTINGS_STORAGE_KEY = "lucascad:global-settings";
 
 export const DEFAULT_GLOBAL_SETTINGS: GlobalAppSettings = {
+  theme: normalizeTheme(THEME_PRESETS.tron),
+  selectedEdgeWidthPx: 4,
+  meshQuality: 40,
   sketchDimensionTextScale: 0.5,
   sketchNodeDiameterPx: 4,
   sketchHighlightWidthPx: 1.2,
@@ -24,7 +32,12 @@ export function normalizeGlobalSettings(value: unknown): GlobalAppSettings {
   const highlightWidth = typeof value === "object" && value !== null ? Number((value as Partial<GlobalAppSettings>).sketchHighlightWidthPx) : Number.NaN;
   const gridSize = typeof value === "object" && value !== null ? Number((value as Partial<GlobalAppSettings>).sketchGridSizeMm) : Number.NaN;
   const unitSystem = typeof value === "object" && value !== null && (value as Partial<GlobalAppSettings>).unitSystem === "imperial" ? "imperial" : "metric";
+  const quality = typeof value === "object" && value !== null ? (value as Partial<GlobalAppSettings>).meshQuality : undefined;
+  const edgeWidth = typeof value === "object" && value !== null ? (value as Partial<GlobalAppSettings>).selectedEdgeWidthPx : undefined;
   return {
+    theme: normalizeTheme(typeof value === "object" && value !== null ? (value as Partial<GlobalAppSettings>).theme : undefined),
+    selectedEdgeWidthPx: typeof edgeWidth === "number" && Number.isFinite(edgeWidth) ? Math.max(1, Math.min(10, edgeWidth)) : DEFAULT_GLOBAL_SETTINGS.selectedEdgeWidthPx,
+    meshQuality: typeof quality === "number" && Number.isFinite(quality) ? Math.round(Math.max(0, Math.min(100, quality))) : DEFAULT_GLOBAL_SETTINGS.meshQuality,
     sketchDimensionTextScale: Number.isFinite(candidate)
       ? Math.max(0.25, Math.min(1.5, candidate))
       : DEFAULT_GLOBAL_SETTINGS.sketchDimensionTextScale,

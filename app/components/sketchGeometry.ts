@@ -55,11 +55,11 @@ export const nearestGridVertex = (point: Point, spacing: number): Point => {
  * it is inside the snap aperture. This keeps a nearby grid vertex from stealing
  * an endpoint drop that the cursor is clearly indicating.
  */
-export function preferredSketchSnap<T extends { point: Point }>(raw: Point, geometryCandidates: T[], snapTolerance: number, gridFallback: T): T {
+export function preferredSketchSnap<T extends { point: Point }>(raw: Point, geometryCandidates: T[], snapTolerance: number, gridFallback: T, project: (point: Point) => Point = (point) => point): T {
   let best: T | null = null;
   let bestDistance = snapTolerance;
   for (const candidate of geometryCandidates) {
-    const candidateDistance = distance(raw, candidate.point);
+    const candidateDistance = distance(project(raw), project(candidate.point));
     if (candidateDistance <= bestDistance) { best = candidate; bestDistance = candidateDistance; }
   }
   return best ?? gridFallback;
@@ -287,9 +287,10 @@ function segmentIntersection(a: Point, b: Point, c: Point, d: Point): { point: P
 
 function lineIntersection(a: Point, b: Point, c: Point, d: Point): Point | null { return segmentIntersection(a, b, c, d)?.point ?? null; }
 
-export function entityInSelectionBox(entity: SketchEntity, start: Point, end: Point): boolean {
+export function entityInSelectionBox(entity: SketchEntity, start: Point, end: Point, project: (point: Point) => Point = (point) => point): boolean {
+  start = project(start); end = project(end);
   const box = normalizedSelectionBox(start, end);
-  const points = sampleSketchEntity(entity);
+  const points = sampleSketchEntity(entity).map(project);
   if (!points.length) return false;
   // CAD convention: left-to-right selects fully enclosed geometry, while a
   // right-to-left box also selects geometry crossed by the box boundary.

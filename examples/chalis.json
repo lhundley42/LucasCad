@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 2,
+  "units": "mm",
+  "sketches": [
+    {
+      "id": "sketch-c146b8e7-d5a0-4fab-a6f0-9c29e6eac2f6",
+      "name": "Sketch 1",
+      "plane": "XY",
+      "entities": [
+        {
+          "id": "entity-b02b050c-12b0-4dbd-9d58-886cf13491d1",
+          "type": "circle",
+          "c": {
+            "x": 0,
+            "y": 0
+          },
+          "r": 93.2952303175248,
+          "relations": [
+            "Grid"
+          ]
+        }
+      ],
+      "visible": false
+    },
+    {
+      "id": "sketch-329ebfec-da0b-4c7f-8176-e1fd72913c7d",
+      "name": "Sketch 2",
+      "plane": {
+        "kind": "reference-plane",
+        "referenceId": "plane-442de2b1-a519-41e9-b048-97ed98dbbd5c"
+      },
+      "entities": [
+        {
+          "id": "entity-960fa3f9-9193-4c6f-8b03-2b894f2656f8",
+          "type": "circle",
+          "c": {
+            "x": 0,
+            "y": 0
+          },
+          "r": 40,
+          "relations": [
+            "Grid"
+          ]
+        }
+      ],
+      "visible": false
+    },
+    {
+      "id": "sketch-a42a8fcf-beee-41df-9a29-e44c79ce7b89",
+      "name": "Sketch 3",
+      "plane": {
+        "kind": "reference-plane",
+        "referenceId": "plane-2ab83103-ddbf-4c29-b086-7394bb4bc715"
+      },
+      "entities": [
+        {
+          "id": "entity-f68fc6fc-dd0c-466f-ae9b-4e5c4fe1891d",
+          "type": "circle",
+          "c": {
+            "x": 0,
+            "y": 0
+          },
+          "r": 68.35202996254024,
+          "relations": [
+            "Grid"
+          ]
+        }
+      ],
+      "visible": false
+    },
+    {
+      "id": "sketch-a341bffc-aff5-4c69-bbdc-1670f07d7cb3",
+      "name": "Sketch 4",
+      "plane": {
+        "kind": "reference-plane",
+        "referenceId": "plane-6db6f969-32d4-4d5d-b64e-8a5aa0b7e904"
+      },
+      "entities": [
+        {
+          "id": "entity-f76ec6a2-cc56-4412-9716-18814ece8c63",
+          "type": "ellipse",
+          "c": {
+            "x": 0.2243732511997223,
+            "y": 0
+          },
+          "rx": 146.71541595458984,
+          "ry": 120,
+          "relations": [
+            "Center"
+          ]
+        }
+      ],
+      "visible": false,
+      "dimensionOffsets": {},
+      "constraints": []
+    }
+  ],
+  "features": [
+    {
+      "type": "loft",
+      "sketchIds": [
+        "sketch-c146b8e7-d5a0-4fab-a6f0-9c29e6eac2f6",
+        "sketch-329ebfec-da0b-4c7f-8176-e1fd72913c7d",
+        "sketch-a42a8fcf-beee-41df-9a29-e44c79ce7b89",
+        "sketch-a341bffc-aff5-4c69-bbdc-1670f07d7cb3"
+      ],
+      "ruled": false,
+      "combine": "new",
+      "id": "feature-dc402fb9-6ee7-450a-8306-850e12ecfce7",
+      "name": "Loft 1",
+      "bodyId": "body-991cde5a-6b42-46ba-b2b6-1f4899778446",
+      "visible": true
+    },
+    {
+      "id": "shell-02794ca9-612b-4c3a-922a-15d842d8cfa9",
+      "name": "Shell 1",
+      "type": "shell",
+      "targetBodyId": "body-991cde5a-6b42-46ba-b2b6-1f4899778446",
+      "faceIndices": [
+        3
+      ],
+      "thickness": 2,
+      "outward": false
+    }
+  ],
+  "referenceGeometry": [
+    {
+      "id": "plane-442de2b1-a519-41e9-b048-97ed98dbbd5c",
+      "name": "Plane 1",
+      "sourceLabel": "XY origin plane",
+      "visible": false,
+      "type": "plane",
+      "origin": [
+        0,
+        0,
+        61.26250535465542
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "xDir": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "plane-6db6f969-32d4-4d5d-b64e-8a5aa0b7e904",
+      "name": "Plane 2",
+      "sourceLabel": "Plane 1",
+      "visible": false,
+      "type": "plane",
+      "origin": [
+        0,
+        0,
+        202.09844451367474
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "xDir": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "plane-2ab83103-ddbf-4c29-b086-7394bb4bc715",
+      "name": "Plane 3",
+      "sourceLabel": "XY origin plane",
+      "visible": true,
+      "type": "plane",
+      "origin": [
+        0,
+        0,
+        77.36855988240688
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "xDir": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

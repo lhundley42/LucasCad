@@ -3,6 +3,12 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import cadquery as cq
+try:
+    from .mesh_quality import mesh_settings, mesh_shape, face_mesh, edge_points
+    from .fillet_limits import FilletWorkbench
+except ImportError:
+    from mesh_quality import mesh_settings, mesh_shape, face_mesh, edge_points
+    from fillet_limits import FilletWorkbench
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -14,7 +20,7 @@ from OCP.gp import gp_Dir, gp_Pln, gp_Pnt
 app = FastAPI(title="LucasCad geometry service", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://lucascad.localhost:4310", "http://localhost:4310", "http://127.0.0.1:4310"],
+    allow_origins=["http://lucascad.localhost:4310", "http://localhost:4310", "http://127.0.0.1:4310", "http://127.0.0.1:4312"],  # Last origin: isolated browser regression bench.
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -658,6 +664,155 @@ def resolve_revolve_axis(feature: dict, sketches: dict[str, dict], bodies: dict[
     raise ValueError("The selected revolve axis reference is not supported.")
 
 
+def sweep_path(entities: list[dict], plane: cq.Plane) -> cq.Wire:
+    """One connected, non-branching wire; never silently omit a selected curve."""
+    edges = []
+    endpoints = []
+    for entity in entities:
+        if entity.get("construction"):
+            continue
+        kind = entity.get("type")
+        if kind == "line":
+            edge = cq.Edge.makeLine(vector(entity["a"], plane), vector(entity["b"], plane))
+        elif kind == "arc":
+            edge = cq.Edge.makeThreePointArc(vector(entity["a"], plane), vector(entity["through"], plane), vector(entity["b"], plane))
+        elif kind == "spline":
+            points = spline_curve_points(entity)
+            if len(points) < 2:
+                raise ValueError("Sweep path contains a spline with fewer than two points.")
+            periodic = points_match(points[0], points[-1])
+            edge = cq.Edge.makeSpline([vector(p, plane) for p in (points[:-1] if periodic else points)], periodic=periodic)
+        elif kind == "circle":
+            edge = cq.Wire.makeCircle(float(entity["r"]), vector(entity["c"], plane), plane.zDir).Edges()[0]
+        elif kind == "ellipse":
+            direction = plane.xDir.multiply(math.cos(float(entity.get("rotation", 0)))).add(plane.yDir.multiply(math.sin(float(entity.get("rotation", 0)))))
+            edge = cq.Wire.makeEllipse(float(entity["rx"]), float(entity["ry"]), vector(entity["c"], plane), plane.zDir, direction).Edges()[0]
+        else:
+            raise ValueError(f"Unsupported sweep path entity: {kind}.")
+        if edge.Length() < 1e-7:
+            raise ValueError("Sweep path contains a zero-length segment.")
+        edges.append(edge)
+        endpoints.extend([edge.startPoint(), edge.endPoint()])
+    if not edges:
+        raise ValueError("Select a path sketch containing lines, arcs, circles, ellipses or splines. Construction geometry is ignored.")
+    if any(sum(point.sub(other).Length < 1e-6 for other in endpoints) > 2 for point in endpoints):
+        raise ValueError("Sweep path branches or contains duplicate segments. Use one continuous chain without branches.")
+    paths = cq.Wire.combine(edges, tol=1e-6)
+    if len(paths) != 1 or len(paths[0].Edges()) != len(edges) or not paths[0].isValid():
+        raise ValueError("Sweep path is disconnected. Snap its endpoints together, or remove isolated geometry.")
+    return paths[0]
+
+
+def make_sweep(feature: dict, sketches: dict, bodies: dict, references: dict, plane_cache: dict | None = None) -> cq.Shape:
+    ids = feature.get("sketchIds", [])
+    if not isinstance(ids, list) or len(ids) != 2 or any(not isinstance(i, str) for i in ids) or ids[0] == ids[1]:
+        raise ValueError("Sweep requires two different sketches: a closed profile, then a connected path.")
+    if any(i not in sketches for i in ids):
+        raise ValueError("A sweep profile or path sketch is missing. Edit Sweep to reselect it.")
+    profile, path_sketch = (sketches[i] for i in ids)
+    diagnosis = analyze_sketch_entities(profile.get("entities", []))
+    if not diagnosis["closed"]:
+        raise ValueError(f"Sweep profile is not closed: {'; '.join(diagnosis['issues'])} Open the profile and run SketchCheck.")
+    profile_plane = plane_for_sketch(profile, bodies, references)
+    path_plane = plane_for_sketch(path_sketch, bodies, references)
+    wires, _ = sketch_wires(profile.get("entities", []), profile_plane)
+    if any(not wire.IsClosed() or not cq.Face.makeFromWires(wire).isValid() for wire in wires):
+        raise ValueError("Sweep profile is invalid or self-intersecting.")
+    try:
+        path = sweep_path(path_sketch.get("entities", []), path_plane)
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError("Sweep path contains invalid or degenerate geometry. Check its endpoints and curves.") from error
+    distance_to_plane = lambda point: abs(point.sub(profile_plane.origin).dot(profile_plane.zDir))
+    if distance_to_plane(path.startPoint()) > 1e-5:
+        if not path.IsClosed() and distance_to_plane(path.endPoint()) <= 1e-5:
+            path = path.reverse()
+        else:
+            raise ValueError("The path must start or end on the profile plane. Move the profile to a path endpoint (or the seam of a closed path); mid-path sweeps are not supported yet.")
+    if abs(path.tangentAt(0).dot(profile_plane.zDir)) < 1e-6:
+        raise ValueError("The path is tangent to the profile plane. Place the profile across the path, preferably normal to its starting tangent.")
+    orientation = feature.get("orientation", "follow")
+    if orientation not in ("follow", "fixed"):
+        raise ValueError("Choose Follow path or Keep normal constant for sweep orientation.")
+    transition = feature.get("transition", "round")
+    if transition not in ("round", "right"):
+        raise ValueError("Choose Round or Miter for sweep path corners.")
+    try:
+        result = cq.Workplane(profile_plane).newObject(wires).toPending().sweep(
+            path, combine=False, isFrenet=False, transition=transition,
+            normal=profile_plane.zDir if orientation == "fixed" else None,
+        ).val()
+        if not result.isValid() or len(result.Solids()) != 1 or result.Volume() <= 1e-7:
+            raise ValueError("invalid solid")
+    except Exception as error:
+        raise ValueError("Sweep could not form one valid solid. Use one closed profile (holes are allowed), reduce its size at tight bends, or try a smoother path or different corner/orientation setting.") from error
+    if plane_cache is not None:
+        plane_cache[ids[0]] = profile_plane
+        plane_cache[ids[1]] = path_plane
+    return result.Solids()[0]
+
+
+def make_loft(feature: dict, sketches: dict, bodies: dict, references: dict, plane_cache: dict | None = None) -> cq.Shape:
+    """Solid, ordered-section loft. Never silently drop an open or extra contour."""
+    ids = feature.get("sketchIds", [])
+    if not isinstance(ids, list) or len(ids) < 2:
+        raise ValueError("Loft requires at least two closed sketch profiles, selected in order.")
+    if any(not isinstance(item, str) for item in ids) or len(set(ids)) != len(ids):
+        raise ValueError("Each loft section must be a different sketch.")
+    wires = []
+    planes = []
+    for index, sketch_id in enumerate(ids):
+        sketch = sketches.get(sketch_id)
+        if not sketch:
+            raise ValueError(f"Loft section {index + 1} references a missing sketch.")
+        label = sketch.get("name", sketch_id)
+        entities = sketch.get("entities", [])
+        diagnosis = analyze_sketch_entities(entities)
+        if not diagnosis["closed"]:
+            raise ValueError(f"Loft section {index + 1} ({label}) is not closed: {'; '.join(diagnosis['issues'])} Open this sketch and run SketchCheck.")
+        plane = plane_for_sketch(sketch, bodies, references)
+        section_wires, _ = sketch_wires(entities, plane)
+        if len(section_wires) != 1:
+            raise ValueError(f"Loft section {index + 1} ({label}) must contain exactly one closed contour. Separate holes or disconnected contours into other sketches.")
+        if not section_wires[0].IsClosed() or not cq.Face.makeFromWires(section_wires[0]).isValid():
+            raise ValueError(f"Loft section {index + 1} ({label}) is invalid or self-intersecting.")
+        for previous in planes:
+            if abs(abs(previous.zDir.dot(plane.zDir)) - 1) < 1e-8 and abs(plane.origin.sub(previous.origin).dot(previous.zDir)) < 1e-7:
+                raise ValueError(f"Loft section {index + 1} ({label}) shares a plane with another section. Use separate section planes with nonzero spacing.")
+        wires.append(section_wires[0]); planes.append(plane)
+        if plane_cache is not None:
+            plane_cache[sketch_id] = plane
+    try:
+        result = cq.Solid.makeLoft(wires, ruled=bool(feature.get("ruled", False)))
+        if not result.isValid() or len(result.Solids()) != 1 or result.Volume() <= 1e-7:
+            raise ValueError("invalid solid")
+        return result
+    except Exception as error:
+        raise ValueError("Loft could not form a valid solid. Check profile order, overlapping sections or sharp changes; try Ruled transitions or add an intermediate section.") from error
+
+
+def union_bodies(bodies: dict[str, cq.Shape], feature: dict) -> tuple[str, cq.Shape]:
+    ids = feature.get("bodyIds", [])
+    if not isinstance(ids, list) or len(ids) < 2 or any(not isinstance(item, str) for item in ids):
+        raise ValueError("Select at least two solid bodies to union.")
+    if len(set(ids)) != len(ids):
+        raise ValueError("Each union body must be selected only once.")
+    if any(item not in bodies for item in ids):
+        raise ValueError("The union references a missing or already consumed body. Edit its body selection.")
+    target = feature.get("targetBodyId") or ids[0]
+    if target not in ids:
+        raise ValueError("The union result body must be one of the selected bodies.")
+    # Fuse together, not sequentially: a later body may bridge two earlier bodies.
+    try:
+        result = bodies[ids[0]].fuse(*(bodies[item] for item in ids[1:])).clean()
+    except Exception as exc:
+        raise ValueError("Unable to union these bodies. Check their contacting faces and intersections.") from exc
+    if not result.isValid() or len(result.Solids()) != 1:
+        raise ValueError("Union requires bodies that touch or overlap to form one valid solid. Separate or edge-only contacts cannot be joined.")
+    return target, result.Solids()[0]
+
+
 def build_document(payload: dict) -> tuple[dict[str, cq.Shape], list[dict], list[dict]]:
     sketches = {sketch["id"]: sketch for sketch in payload.get("sketches", [])}
     references = {reference["id"]: reference for reference in payload.get("referenceGeometry", [])}
@@ -665,6 +820,13 @@ def build_document(payload: dict) -> tuple[dict[str, cq.Shape], list[dict], list
     plane_cache: dict[str, cq.Plane] = {}
     feature_results = []
     for feature in payload.get("features", []):
+        if feature.get("type") == "union":
+            body_id, result = union_bodies(bodies, feature)
+            for consumed_id in feature["bodyIds"]:
+                del bodies[consumed_id]
+            bodies[body_id] = result
+            feature_results.append({"id": feature.get("id"), "bodyId": body_id})
+            continue
         if feature.get("type") in ("fillet", "chamfer", "draft", "shell"):
             body_id = feature.get("targetBodyId")
             if body_id not in bodies:
@@ -672,14 +834,19 @@ def build_document(payload: dict) -> tuple[dict[str, cq.Shape], list[dict], list
             bodies[body_id] = apply_body_feature(bodies[body_id], feature)
             feature_results.append({"id": feature.get("id"), "bodyId": body_id})
             continue
-        sketch_id = feature.get("sketchId")
-        if sketch_id not in sketches:
-            raise ValueError(f"Feature {feature.get('name', feature.get('id'))} references a missing sketch.")
-        sketch = sketches[sketch_id]
-        plane = plane_for_sketch(sketch, bodies, references)
-        plane_cache[sketch_id] = plane
-        axis_line = resolve_revolve_axis(feature, sketches, bodies, references) if feature.get("type") == "revolve" else None
-        tool = make_feature({**feature, "operation": feature.get("type"), "entities": sketch.get("entities", []), **({"axisLine": axis_line} if axis_line else {})}, plane)
+        if feature.get("type") == "sweep":
+            tool = make_sweep(feature, sketches, bodies, references, plane_cache)
+        elif feature.get("type") == "loft":
+            tool = make_loft(feature, sketches, bodies, references, plane_cache)
+        else:
+            sketch_id = feature.get("sketchId")
+            if sketch_id not in sketches:
+                raise ValueError(f"Feature {feature.get('name', feature.get('id'))} references a missing sketch.")
+            sketch = sketches[sketch_id]
+            plane = plane_for_sketch(sketch, bodies, references)
+            plane_cache[sketch_id] = plane
+            axis_line = resolve_revolve_axis(feature, sketches, bodies, references) if feature.get("type") == "revolve" else None
+            tool = make_feature({**feature, "operation": feature.get("type"), "entities": sketch.get("entities", []), **({"axisLine": axis_line} if axis_line else {})}, plane)
         tool_shape = tool.Solids()[0] if len(tool.Solids()) == 1 else tool
         combine = feature.get("combine", "new")
         if combine == "new":
@@ -689,7 +856,11 @@ def build_document(payload: dict) -> tuple[dict[str, cq.Shape], list[dict], list
             body_id = feature.get("targetBodyId")
             if body_id not in bodies:
                 raise ValueError("Select an existing target body for the union or cut operation.")
+            if feature.get("type") in ("loft", "sweep") and combine == "cut" and bodies[body_id].intersect(tool_shape).Volume() <= 1e-7:
+                raise ValueError(f"The {feature['type']} does not overlap the target body. Adjust its sketches or choose New body.")
             result = bodies[body_id].fuse(tool_shape) if combine == "union" else bodies[body_id].cut(tool_shape)
+            if feature.get("type") in ("loft", "sweep") and combine == "union" and len(result.Solids()) != 1:
+                raise ValueError(f"The {feature['type']} must touch or overlap the target body to form one solid. Adjust its sketches or choose New body.")
             if not result.isValid() or not result.Solids():
                 raise ValueError(f"The {combine} operation did not create a valid solid. Check that the feature intersects the target body.")
             bodies[body_id] = result.Solids()[0] if len(result.Solids()) == 1 else result
@@ -740,24 +911,39 @@ def edge_selection_metadata(edge: cq.Edge) -> dict:
 
 
 def document_payload(payload: dict) -> dict:
+    quality = mesh_settings(payload.get("meshQuality"))
     bodies, sketches, feature_results = build_document(payload)
     references = {reference["id"]: reference for reference in payload.get("referenceGeometry", [])}
     faces = []
     edges = []
     for body_id, body in bodies.items():
+        mesh_shape(body, quality)
         for index, face in enumerate(body.Faces(), start=1):
-            vertices, triangles = face.tessellate(0.15, 0.2)
-            faces.append({"id": f"{body_id}:face-{index}", "bodyId": body_id, "faceIndex": index, "vertices": [[point.x, point.y, point.z] for point in vertices], "triangles": [list(triangle) for triangle in triangles], **face_selection_metadata(face)})
+            faces.append({"id": f"{body_id}:face-{index}", "bodyId": body_id, "faceIndex": index, **face_mesh(face, quality), **face_selection_metadata(face)})
         for index, edge in enumerate(body.Edges(), start=1):
-            points = tessellated_edge_points(edge)
+            points = edge_points(edge, quality["linearDeflectionMm"])
             if len(points) > 1:
-                edges.append({"id": f"{body_id}:edge-{index}", "bodyId": body_id, "edgeIndex": index, "linear": edge.geomType() == "LINE", "points": [[point.x, point.y, point.z] for point in points], **edge_selection_metadata(edge)})
+                edges.append({"id": f"{body_id}:edge-{index}", "bodyId": body_id, "edgeIndex": index, "linear": edge.geomType() == "LINE", "points": points, **edge_selection_metadata(edge)})
     preview_faces = []
     preview_target_body_id = None
+    preview_target_body_ids = []
     preview_feature = payload.get("previewFeature")
     if preview_feature:
         preview_shape = None
-        if preview_feature.get("type") in ("fillet", "chamfer", "draft", "shell"):
+        if preview_feature.get("type") == "union":
+            preview_target_body_id, preview_shape = union_bodies(bodies, preview_feature)
+            preview_target_body_ids = preview_feature["bodyIds"]
+        elif preview_feature.get("type") in ("loft", "sweep"):
+            # Validate the actual Boolean result too; an attractive tool preview is not proof of a valid feature.
+            build_document({**payload, "features": [*payload.get("features", []), {**preview_feature, "id": "loft-preview", "bodyId": "loft-preview"}]})
+            builder = make_sweep if preview_feature.get("type") == "sweep" else make_loft
+            preview_shape = builder(preview_feature, {sketch["id"]: sketch for sketch in payload.get("sketches", [])}, bodies, references)
+            target = bodies.get(preview_feature.get("targetBodyId"))
+            if target and preview_feature.get("combine") == "cut":
+                preview_shape = preview_shape.intersect(target)
+            elif target and preview_feature.get("combine") == "union":
+                preview_shape = preview_shape.cut(target)
+        elif preview_feature.get("type") in ("fillet", "chamfer", "draft", "shell"):
             preview_target_body_id = preview_feature.get("targetBodyId")
             target_body = bodies.get(preview_target_body_id)
             if target_body:
@@ -775,9 +961,9 @@ def document_payload(payload: dict) -> dict:
                 elif target_body and preview_feature.get("combine") == "union":
                     preview_shape = preview_shape.cut(target_body)
         if preview_shape:
+            mesh_shape(preview_shape, quality)
             for index, face in enumerate(preview_shape.Faces(), start=1):
-                vertices, triangles = face.tessellate(0.15, 0.2)
-                preview_faces.append({"id": f"preview:face-{index}", "bodyId": "preview", "faceIndex": index, "vertices": [[point.x, point.y, point.z] for point in vertices], "triangles": [list(triangle) for triangle in triangles], **face_selection_metadata(face)})
+                preview_faces.append({"id": f"preview:face-{index}", "bodyId": "preview", "faceIndex": index, **face_mesh(face, quality), **face_selection_metadata(face)})
     compound = cq.Compound.makeCompound(list(bodies.values())) if bodies else None
     bounds = compound.BoundingBox() if compound else None
     return {
@@ -785,12 +971,15 @@ def document_payload(payload: dict) -> dict:
         "edges": edges,
         "previewFaces": preview_faces,
         "previewTargetBodyId": preview_target_body_id,
+        "previewTargetBodyIds": preview_target_body_ids,
+        "meshQuality": quality,
         "sketches": sketches,
         "featureResults": feature_results,
         "properties": {
             "valid": all(body.isValid() for body in bodies.values()),
             "solidCount": sum(len(body.Solids()) for body in bodies.values()),
             "bodyCount": len(bodies),
+            "triangleCount": sum(len(face["triangles"]) for face in faces),
             "faceCount": len(faces),
             "edgeCount": sum(len(body.Edges()) for body in bodies.values()),
             "volume": sum(body.Volume() for body in bodies.values()),
@@ -851,6 +1040,24 @@ def validate_sketch(payload: dict = Body(...)) -> dict:
     return analyze_sketch_entities(payload.get("entities") or [])
 
 
+def fillet_preview_mesh(shape):
+    quality = mesh_settings(30)
+    mesh_shape(shape, quality)
+    return [{"id": f"preview:face-{index}", "bodyId": "preview", "faceIndex": index,
+             **face_mesh(face, quality)} for index, face in enumerate(shape.Faces(), start=1)]
+
+
+fillet_workbench = FilletWorkbench(build_document, apply_body_feature, fillet_preview_mesh)
+
+
+@app.post("/api/fillet")
+def interactive_fillet(payload: dict = Body(...)) -> dict:
+    try:
+        return fillet_workbench.evaluate(payload)
+    except (ValueError, TypeError, KeyError, RuntimeError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @app.post("/api/document")
 def document(payload: dict = Body(...)) -> dict:
     try:
@@ -896,6 +1103,7 @@ def export_feature(payload: dict = Body(...)) -> Response:
     return Response(content=content, media_type="model/step", headers={"Content-Disposition": 'attachment; filename="lucascad-feature.step"'})
 
 
+@app.post("/api/export/document.stp")
 @app.post("/api/export/document.step")
 def export_document(payload: dict = Body(...)) -> Response:
     try:
@@ -932,7 +1140,10 @@ def export_document_stl(payload: dict = Body(...)) -> Response:
     with NamedTemporaryFile(suffix=".stl", delete=False) as handle:
         path = Path(handle.name)
     try:
-        cq.exporters.export(shape, str(path), exportType="STL", tolerance=0.05, angularTolerance=0.1)
+        quality = mesh_settings(payload.get("meshQuality"))
+        mesh_shape(shape, quality)
+        if not shape.exportStl(str(path), tolerance=quality["linearDeflectionMm"], angularTolerance=quality["angularDeflectionRad"], ascii=False, relative=False):
+            raise HTTPException(status_code=422, detail="STL meshing failed; try a lower mesh quality.")
         content = path.read_bytes()
     finally:
         path.unlink(missing_ok=True)
@@ -944,11 +1155,18 @@ def obj_safe_name(value: str) -> str:
     return cleaned or "body"
 
 
-def document_obj_bytes(bodies: dict[str, cq.Shape]) -> bytes:
+def document_obj_bytes(bodies: dict[str, cq.Shape], mesh_quality=None) -> bytes:
+    quality = mesh_settings(mesh_quality)
     lines = ["# LucasCad Wavefront OBJ", "# Units: millimeters", "s 1"]
     vertex_offset = 1
     for body_id, shape in bodies.items():
-        vertices, triangles = shape.tessellate(0.05, 0.1)
+        mesh_shape(shape, quality)
+        meshes = [face_mesh(face, quality) for face in shape.Faces()]
+        vertices, triangles = [], []
+        for mesh in meshes:
+            offset = len(vertices)
+            vertices.extend(cq.Vector(point) for point in mesh["vertices"])
+            triangles.extend(tuple(index + offset for index in triangle) for triangle in mesh["triangles"])
         lines.append(f"o {obj_safe_name(body_id)}")
         lines.extend(f"v {point.x:.9g} {point.y:.9g} {point.z:.9g}" for point in vertices)
         lines.extend(f"f {first + vertex_offset} {second + vertex_offset} {third + vertex_offset}" for first, second, third in triangles)
@@ -958,5 +1176,5 @@ def document_obj_bytes(bodies: dict[str, cq.Shape]) -> bytes:
 
 @app.post("/api/export/document.obj")
 def export_document_obj(payload: dict = Body(...)) -> Response:
-    content = document_obj_bytes(export_document_bodies(payload))
+    content = document_obj_bytes(export_document_bodies(payload), payload.get("meshQuality"))
     return Response(content=content, media_type="model/obj", headers={"Content-Disposition": 'attachment; filename="lucascad-document.obj"'})
