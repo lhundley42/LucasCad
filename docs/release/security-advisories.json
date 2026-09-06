@@ -1,0 +1,769 @@
+{
+  "date": "2026-09-06",
+  "npm": {
+    "counts": {
+      "info": 0,
+      "low": 3,
+      "moderate": 9,
+      "high": 14,
+      "critical": 0
+    },
+    "advisories": [
+      {
+        "package": "esbuild",
+        "severity": "moderate",
+        "title": "esbuild enables any website to send any requests to the development server and read the response",
+        "id": "GHSA-67mh-4wv8-2f99",
+        "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99",
+        "affected": "<=0.24.2",
+        "fixed": ">=0.24.3",
+        "installed": [
+          {
+            "version": "0.18.20",
+            "paths": [
+              ".>drizzle-kit>@esbuild-kit/esm-loader>@esbuild-kit/core-utils>esbuild"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "ws",
+        "severity": "moderate",
+        "title": "ws: Uninitialized memory disclosure",
+        "id": "GHSA-58qx-3vcg-4xpx",
+        "url": "https://github.com/advisories/GHSA-58qx-3vcg-4xpx",
+        "affected": ">=8.0.0 <8.20.1",
+        "fixed": ">=8.20.1",
+        "installed": [
+          {
+            "version": "8.18.0",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>ws",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>ws",
+              ".>@cloudflare/vite-plugin>ws",
+              ".>wrangler>miniflare>ws"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "esbuild",
+        "severity": "low",
+        "title": "esbuild allows arbitrary file read when running the development server on Windows",
+        "id": "GHSA-g7r4-m6w7-qqqr",
+        "url": "https://github.com/advisories/GHSA-g7r4-m6w7-qqqr",
+        "affected": ">=0.27.3 <0.28.1",
+        "fixed": ">=0.28.1",
+        "installed": [
+          {
+            "version": "0.27.3",
+            "paths": [
+              ".>@cloudflare/vite-plugin>wrangler>esbuild",
+              ".>wrangler>esbuild"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "vite",
+        "severity": "moderate",
+        "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows",
+        "id": "GHSA-v6wh-96g9-6wx3",
+        "url": "https://github.com/advisories/GHSA-v6wh-96g9-6wx3",
+        "affected": ">=8.0.0 <=8.0.15",
+        "fixed": ">=8.0.16",
+        "installed": [
+          {
+            "version": "8.0.13",
+            "paths": [
+              ".>@cloudflare/vite-plugin>vite",
+              ".>@openai/sites-vite-plugin>vite",
+              ".>@vitejs/plugin-react>vite",
+              ".>@vitejs/plugin-rsc>vite",
+              ".>@vitejs/plugin-rsc>vitefu>vite",
+              ".>vinext>@vitejs/plugin-react>vite",
+              ".>vinext>vite",
+              ".>vinext>@vitejs/plugin-rsc>vite",
+              ".>vinext>@vitejs/plugin-rsc>vitefu>vite",
+              ".>vite"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "high",
+        "title": "undici vulnerable to TLS certificate validation bypass via dropped requestTls in SOCKS5 ProxyAgent",
+        "id": "GHSA-vmh5-mc38-953g",
+        "url": "https://github.com/advisories/GHSA-vmh5-mc38-953g",
+        "affected": ">=7.23.0 <7.28.0",
+        "fixed": ">=7.28.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "moderate",
+        "title": "undici vulnerable to HTTP header injection via Set-Cookie percent-decoding",
+        "id": "GHSA-p88m-4jfj-68fv",
+        "url": "https://github.com/advisories/GHSA-p88m-4jfj-68fv",
+        "affected": ">=7.0.0 <7.28.0",
+        "fixed": ">=7.28.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "high",
+        "title": "undici WebSocket client vulnerable to denial of service via fragment count bypass",
+        "id": "GHSA-vxpw-j846-p89q",
+        "url": "https://github.com/advisories/GHSA-vxpw-j846-p89q",
+        "affected": ">=7.0.0 <7.28.0",
+        "fixed": ">=7.28.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "high",
+        "title": "undici vulnerable to cross-origin request routing via SOCKS5 proxy pool reuse",
+        "id": "GHSA-hm92-r4w5-c3mj",
+        "url": "https://github.com/advisories/GHSA-hm92-r4w5-c3mj",
+        "affected": ">=7.23.0 <7.28.0",
+        "fixed": ">=7.28.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "low",
+        "title": "undici vulnerable to Set-Cookie SameSite attribute downgrade via permissive substring matching",
+        "id": "GHSA-g8m3-5g58-fq7m",
+        "url": "https://github.com/advisories/GHSA-g8m3-5g58-fq7m",
+        "affected": ">=7.0.0 <7.28.0",
+        "fixed": ">=7.28.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "moderate",
+        "title": "undici vulnerable to cross-user information disclosure via shared cache whitespace bypass",
+        "id": "GHSA-pr7r-676h-xcf6",
+        "url": "https://github.com/advisories/GHSA-pr7r-676h-xcf6",
+        "affected": ">=7.0.0 <7.28.0",
+        "fixed": ">=7.28.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "ws",
+        "severity": "high",
+        "title": "ws: Memory exhaustion DoS from tiny fragments and data chunks",
+        "id": "GHSA-96hv-2xvq-fx4p",
+        "url": "https://github.com/advisories/GHSA-96hv-2xvq-fx4p",
+        "affected": ">=8.0.0 <8.21.0",
+        "fixed": ">=8.21.0",
+        "installed": [
+          {
+            "version": "8.18.0",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>ws",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>ws",
+              ".>@cloudflare/vite-plugin>ws",
+              ".>wrangler>miniflare>ws"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "vite",
+        "severity": "high",
+        "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+        "id": "GHSA-fx2h-pf6j-xcff",
+        "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+        "affected": ">=8.0.0 <=8.0.15",
+        "fixed": ">=8.0.16",
+        "installed": [
+          {
+            "version": "8.0.13",
+            "paths": [
+              ".>@cloudflare/vite-plugin>vite",
+              ".>@openai/sites-vite-plugin>vite",
+              ".>@vitejs/plugin-react>vite",
+              ".>@vitejs/plugin-rsc>vite",
+              ".>@vitejs/plugin-rsc>vitefu>vite",
+              ".>vinext>@vitejs/plugin-react>vite",
+              ".>vinext>vite",
+              ".>vinext>@vitejs/plugin-rsc>vite",
+              ".>vinext>@vitejs/plugin-rsc>vitefu>vite",
+              ".>vite"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "sharp",
+        "severity": "high",
+        "title": "sharp inherited vulnerabilities in libvips: CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591",
+        "id": "GHSA-f88m-g3jw-g9cj",
+        "url": "https://github.com/advisories/GHSA-f88m-g3jw-g9cj",
+        "affected": "<0.35.0",
+        "fixed": ">=0.35.0",
+        "installed": [
+          {
+            "version": "0.34.5",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>sharp",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>sharp",
+              ".>wrangler>miniflare>sharp"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "react-server-dom-webpack",
+        "severity": "high",
+        "title": "react-server-dom: Denial of Service in Server Functions",
+        "id": "GHSA-wx67-qw84-cm4g",
+        "url": "https://github.com/advisories/GHSA-wx67-qw84-cm4g",
+        "affected": ">=19.2.0 <19.2.8",
+        "fixed": ">=19.2.8",
+        "installed": [
+          {
+            "version": "19.2.6",
+            "paths": [
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack",
+              ".>react-server-dom-webpack",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack",
+              ".>vinext>react-server-dom-webpack"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "moderate",
+        "title": "undici vulnerable to downstream response desynchronization via retry interceptor",
+        "id": "GHSA-8xcm-r25x-g524",
+        "url": "https://github.com/advisories/GHSA-8xcm-r25x-g524",
+        "affected": ">=7.0.0 <7.29.0",
+        "fixed": ">=7.29.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "high",
+        "title": "undici vulnerable to cross-user information disclosure and parse-time crash via degenerate private cache directives",
+        "id": "GHSA-4cwx-7wf7-3272",
+        "url": "https://github.com/advisories/GHSA-4cwx-7wf7-3272",
+        "affected": ">=7.0.0 <7.29.0",
+        "fixed": ">=7.29.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "moderate",
+        "title": "undici vulnerable to CRLF Injection via blob-like body 'type' property",
+        "id": "GHSA-m8rv-5g2x-5cg5",
+        "url": "https://github.com/advisories/GHSA-m8rv-5g2x-5cg5",
+        "affected": ">=7.0.0 <7.29.0",
+        "fixed": ">=7.29.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "moderate",
+        "title": "undici vulnerable to cross-user information disclosure via whitespace around equals in Cache-Control directives",
+        "id": "GHSA-jr45-8vmc-qm54",
+        "url": "https://github.com/advisories/GHSA-jr45-8vmc-qm54",
+        "affected": ">=7.0.0 <7.29.0",
+        "fixed": ">=7.29.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "moderate",
+        "title": "undici vulnerable to cookie attribute injection via unsanitized domain and unparsed setCookie fields",
+        "id": "GHSA-v3r7-h72x-cjcm",
+        "url": "https://github.com/advisories/GHSA-v3r7-h72x-cjcm",
+        "affected": ">=7.0.0 <7.29.0",
+        "fixed": ">=7.29.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "undici",
+        "severity": "low",
+        "title": "undici vulnerable to HTTP response queue poisoning via keep-alive socket reuse",
+        "id": "GHSA-35p6-xmwp-9g52",
+        "url": "https://github.com/advisories/GHSA-35p6-xmwp-9g52",
+        "affected": ">=7.0.0 <7.28.0",
+        "fixed": ">=7.28.0",
+        "installed": [
+          {
+            "version": "7.24.8",
+            "paths": [
+              ".>@cloudflare/vite-plugin>miniflare>undici",
+              ".>@cloudflare/vite-plugin>wrangler>miniflare>undici",
+              ".>wrangler>miniflare>undici"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "image-size",
+        "severity": "high",
+        "title": "image-size: ICNS parser allows denial of service through an infinite loop",
+        "id": "GHSA-w3rx-r6r6-pgpr",
+        "url": "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr",
+        "affected": "<=2.0.2",
+        "fixed": ">=2.0.3",
+        "installed": [
+          {
+            "version": "2.0.2",
+            "paths": [
+              ".>vinext>image-size"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "image-size",
+        "severity": "high",
+        "title": "image-size: JXL and HEIF parsers allow denial of service through infinite loops",
+        "id": "GHSA-5p2g-fcmc-qvqq",
+        "url": "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+        "affected": "<=2.0.2",
+        "fixed": ">=2.0.3",
+        "installed": [
+          {
+            "version": "2.0.2",
+            "paths": [
+              ".>vinext>image-size"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "fast-uri",
+        "severity": "high",
+        "title": "fast-uri vulnerable to host confusion via skipped IDN canonicalization on scheme-relative references",
+        "id": "GHSA-5jgf-p345-68v8",
+        "url": "https://github.com/advisories/GHSA-5jgf-p345-68v8",
+        "affected": ">=3.1.3 <3.1.6",
+        "fixed": ">=3.1.6",
+        "installed": [
+          {
+            "version": "3.1.5",
+            "paths": [
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "fast-uri",
+        "severity": "high",
+        "title": "fast-uri vulnerable to server-side request forgery via malformed IPv6 normalization",
+        "id": "GHSA-f65p-4m7j-42xc",
+        "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc",
+        "affected": ">=3.0.0 <3.1.6",
+        "fixed": ">=3.1.6",
+        "installed": [
+          {
+            "version": "3.1.5",
+            "paths": [
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "fast-uri",
+        "severity": "high",
+        "title": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding",
+        "id": "GHSA-fph4-wmhf-6fwf",
+        "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf",
+        "affected": ">=3.1.2 <3.1.6",
+        "fixed": ">=3.1.6",
+        "installed": [
+          {
+            "version": "3.1.5",
+            "paths": [
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      },
+      {
+        "package": "fast-uri",
+        "severity": "high",
+        "title": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization",
+        "id": "GHSA-jqff-g426-hqxp",
+        "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp",
+        "affected": ">=3.0.0 <3.1.6",
+        "fixed": ">=3.1.6",
+        "installed": [
+          {
+            "version": "3.1.5",
+            "paths": [
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>@vitejs/plugin-rsc>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>minimizer-webpack-plugin>schema-utils>ajv-keywords>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv-formats>ajv>fast-uri",
+              ".>vinext>react-server-dom-webpack>webpack>schema-utils>ajv-keywords>ajv>fast-uri"
+            ],
+            "dev": true,
+            "optional": false,
+            "bundled": false
+          }
+        ]
+      }
+    ]
+  },
+  "python": {
+    "findings": [
+      {
+        "name": "pip",
+        "version": "25.0.1",
+        "vulns": [
+          {
+            "id": "PYSEC-2026-196",
+            "fix_versions": [
+              "26.1.2"
+            ],
+            "aliases": [
+              "CVE-2026-8643",
+              "GHSA-wf93-45jw-7689"
+            ],
+            "description": "pip would treat console_scripts and gui_scripts as paths instead of file names without sanitizing the resolved absolute path to the installation directory, leading to entry points being installed outside the installation directory."
+          },
+          {
+            "id": "PYSEC-2026-1795",
+            "fix_versions": [
+              "25.3"
+            ],
+            "aliases": [
+              "CVE-2025-8869",
+              "GHSA-4xh5-x5gv-qwph"
+            ],
+            "description": "When extracting a tar archive pip may not check symbolic links point into the extraction directory if the tarfile module doesn't implement PEP 706. Note that upgrading pip to a \"fixed\" version for this vulnerability doesn't fix all known vulnerabilities that are remediated by using a Python version that implements PEP 706. Note that this is a vulnerability in pip's fallback implementation of tar extraction for Python versions that don't implement PEP 706 and therefore are not secure to all vulnerabilities in the Python 'tarfile' module. If you're using a Python version that implements PEP 706 then pip doesn't use the \"vulnerable\" fallback code. Mitigations include upgrading to a version of pip that includes the fix, upgrading to a Python version that implements PEP 706 (Python >=3.9.17, >=3.10.12, >=3.11.4, or >=3.12), applying the linked patch, or inspecting source distributions (sdists) before installation as is already a best-practice."
+          },
+          {
+            "id": "PYSEC-2026-1796",
+            "fix_versions": [
+              "26.0"
+            ],
+            "aliases": [
+              "GHSA-6vgw-5pg2-w6jp",
+              "CVE-2026-1703"
+            ],
+            "description": "When pip is installing and extracting a maliciously crafted wheel archive, files may be extracted outside the installation directory. The path traversal is limited to prefixes of the installation directory, thus isn't able to inject or overwrite executable files in typical situations."
+          },
+          {
+            "id": "PYSEC-2026-196",
+            "fix_versions": [
+              "26.1.2"
+            ],
+            "aliases": [
+              "CVE-2026-8643",
+              "GHSA-wf93-45jw-7689"
+            ],
+            "description": "pip would treat console_scripts and gui_scripts as paths instead of file names without sanitizing the resolved absolute path to the installation directory, leading to entry points being installed outside the installation directory."
+          },
+          {
+            "id": "PYSEC-2026-2875",
+            "fix_versions": [
+              "26.1"
+            ],
+            "aliases": [
+              "GHSA-58qw-9mgm-455v",
+              "CVE-2026-3219"
+            ],
+            "description": "pip handles concatenated tar and ZIP files as ZIP files regardless of filename or whether a file is both a tar and ZIP file. This behavior could result in confusing installation behavior, such as installing \"incorrect\" files according to the filename of the archive. New behavior only proceeds with installation if the file identifies uniquely as a ZIP or tar archive, not as both."
+          },
+          {
+            "id": "PYSEC-2026-2876",
+            "fix_versions": [
+              "26.1"
+            ],
+            "aliases": [
+              "CVE-2026-6357",
+              "GHSA-jp4c-xjxw-mgf9"
+            ],
+            "description": "pip prior to version 26.1 would run self-update check functionality after installing wheel files which required importing well-known Python modules names. These module imports were intentionally deferred to increase startup time of the pip CLI. The patch changes self-update functionality to run before wheels are installed to prevent newly-installed modules from being imported shortly after the installation of a wheel package. Users should still review package contents prior to installation."
+          },
+          {
+            "id": "PYSEC-2026-3721",
+            "fix_versions": [
+              "26.2"
+            ],
+            "aliases": [
+              "CVE-2026-13346",
+              "GHSA-qwm4-qh6w-59xr"
+            ],
+            "description": "pip would incorrectly handle doubly-encoded package URLs from indexes allowing for files to be installed to arbitrary locations on disk even when installing wheels.     This vulnerability requires downloading or installing a package from a malicious package index to succeed, malicious packages alone are not able to exploit this vulnerability. Note that this vulnerability only materially impacts users running `pip download` with the `--only-binary` option as installing source distributions from an untrusted index is already an unsafe operation that executes code during install time."
+          }
+        ]
+      }
+    ],
+    "skipped": [],
+    "note": "Installed site-packages scan, including pip; scanner may report duplicate advisory IDs. No result implies no KNOWN advisories, not proof of security."
+  }
+}

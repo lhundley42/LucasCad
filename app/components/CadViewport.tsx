@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useFilletSession } from "./FilletSession";
 import { FilletManipulator } from "./FilletManipulator";
 import * as THREE from "three";
+import { bodyColorMap } from "./bodyColors";
 import { THEME_PRESETS, type ThemeSettings } from "./themes";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
@@ -56,7 +57,7 @@ export type RevolveAxisReference =
   | { kind: "reference-axis"; referenceId: string; label: string };
 export type ChamferMethod = "symmetric" | "angle-distance" | "distance-distance";
 export type ChamferParameter = "distance" | "distance2" | "angle";
-export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; sketchIds?: string[]; orientation?: "follow" | "fixed"; transition?: "round" | "right"; bodyIds?: string[]; ruled?: boolean; combine?: "new" | "union" | "cut"; bodyId?: string; bodyName?: string; bodyVisible?: boolean; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; thickness?: number; outward?: boolean; visible?: boolean };
+export type FeatureRecord = { id: string; name: string; type: FeatureType; sketchId?: string; sketchIds?: string[]; orientation?: "follow" | "fixed"; transition?: "round" | "right"; bodyIds?: string[]; ruled?: boolean; combine?: "new" | "union" | "cut"; bodyId?: string; bodyName?: string; bodyColor?: string; bodyVisible?: boolean; targetBodyId?: string; extent?: "one-sided" | "symmetric" | "bidirectional"; distance?: number; distance2?: number; distancePlus?: number; distanceMinus?: number; direction?: 1 | -1; angle?: number; axis?: RevolveAxisReference | "construction" | "origin-x" | "origin-y" | "profile-left"; edgeIndices?: number[]; radius?: number; method?: ChamferMethod; flip?: boolean; neutralFaceIndex?: number; faceIndices?: number[]; reverse?: boolean; thickness?: number; outward?: boolean; visible?: boolean };
 export type DocumentRequest = { meshQuality?: number; sketches: SketchRecord[]; features: FeatureRecord[]; referenceGeometry?: ReferenceGeometryRecord[] };
 export type SelectedFace = AxisSelectionMetadata & { id: string; bodyId: string; faceIndex: number; center?: VectorTuple; normal?: VectorTuple; planar?: boolean; draftGroupFaceIndices?: number[] };
 export type SelectedEdge = AxisSelectionMetadata & { id: string; bodyId: string; edgeIndex: number; points?: VectorTuple[]; linear?: boolean };
@@ -516,7 +517,8 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       lastFilletResult = result;
     };
 
-    const bodyColor = (bodyId: string) => highlightedFeatureBodyId === bodyId ? 0xe7a63d : (selectedBodyIds.includes(bodyId) || selectedBodyId === bodyId) ? theme.colors.selectedModel : theme.colors.model;
+    let appearanceColors = bodyColorMap(document.features);
+    const bodyColor = (bodyId: string) => highlightedFeatureBodyId === bodyId ? 0xe7a63d : (selectedBodyIds.includes(bodyId) || selectedBodyId === bodyId) ? theme.colors.selectedModel : (appearanceColors[bodyId] ?? theme.colors.model);
     const faceColor = (faceId: string, bodyId: string) => selectedFaceIds.indexOf(faceId) === 0 ? 0xf6b94d : selectedFaceIds.includes(faceId) ? 0x66d9ff : bodyColor(bodyId);
     const setSelected = (mesh: THREE.Mesh | null, additive = false) => {
       if (selected) (selected.material as THREE.MeshStandardMaterial).color.set(faceColor(selected.userData.faceId, selected.userData.bodyId));
@@ -543,9 +545,9 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       // During feature rollback there may be no committed faces at all.
       // Fit must still include the proposed solid and selectable sketch sections.
       const points = [
-        ...data.faces.flatMap((face) => face.vertices),
+        ...data.faces.filter(face => !hiddenBodyIds.has(face.bodyId)).flatMap((face) => face.vertices),
         ...(data.previewFaces ?? []).flatMap((face) => face.vertices),
-        ...data.sketches.filter((sketch) => sketch.visible || selectableSketchIds?.includes(sketch.id)).flatMap((sketch) => sketch.paths.flatMap((path) => path.points)),
+        ...data.sketches.filter((sketch) => (document.sketches.find(item => item.id === sketch.id)?.visible ?? sketch.visible) || selectableSketchIds?.includes(sketch.id)).flatMap((sketch) => sketch.paths.flatMap((path) => path.points)),
       ].map((point) => new THREE.Vector3(...point));
       if (!points.length) return;
       const box = new THREE.Box3().setFromPoints(points);
@@ -809,7 +811,9 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
         }
         const explicitFit = fitViewRequest !== lastFitViewRequestRef.current;
         const rebuiltDocument = !featurePreview && baseDocumentKey !== lastFramedDocumentKeyRef.current;
-        if (!sketchMode && (explicitFit || rebuiltDocument)) {
+        // A display-only redraw may still be using the previous model while
+        // a newly opened/rebuilt document is pending. Do not consume its Fit.
+        if (!sketchMode && cachedBaseKey === baseDocumentKey && (explicitFit || rebuiltDocument)) {
           fitModelToView(data);
           lastFitViewRequestRef.current = fitViewRequest;
           if (!featurePreview) lastFramedDocumentKeyRef.current = baseDocumentKey;
@@ -1205,12 +1209,13 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
       raycaster.params.Line.threshold = referenceAxisPicking ? 1.25 : 4;
       const geometryKey = JSON.stringify([baseDocumentKey, featurePreview]);
       const decorKey = JSON.stringify([[...hiddenBodyIds], document.sketches.map(s => [s.id, s.visible]), document.referenceGeometry, sketchSupportPicking, solidSelectionMode, selectableSketchIds, revolveAxisPicking, referenceAxisPicking, referencePlanePicking, selectedReferenceId, selectedRevolveAxis, referencePlanePreview, originCsyVisible, originPlanesVisible, highlightedSketchId, highlightedFeatureSketchId, selectedPlane, snapNormalRequest, solidSelectionMode === "draft-faces" ? selectedFaceIds[0] : null]);
-      const selectionKey = JSON.stringify([selectedBodyId, selectedBodyIds, selectedEdgeIds, selectedEdgeWidthPx, theme, selectedFaceIds, highlightedFeatureBodyId]);
+      appearanceColors = bodyColorMap(document.features);
+      const selectionKey = JSON.stringify([appearanceColors, selectedBodyId, selectedBodyIds, selectedEdgeIds, selectedEdgeWidthPx, theme, selectedFaceIds, highlightedFeatureBodyId]);
       if (cachedData && decorKey !== previousDecorKey && !arrowDrag && !chamferDrag && !referencePlaneDrag && !filletManipulator.dragging) renderDocument(cachedData, cachedPreview);
       if (cachedData && (selectionKey !== previousSelectionKey || decorKey !== previousDecorKey)) paintSelection();
       syncFilletPreview();
       previousSelectionKey = selectionKey; previousDecorKey = decorKey;
-      if (cachedData && fitViewRequest !== lastFitViewRequestRef.current) { fitModelToView(cachedData); lastFitViewRequestRef.current = fitViewRequest; }
+      if (cachedData && cachedBaseKey === baseDocumentKey && fitViewRequest !== lastFitViewRequestRef.current) { fitModelToView(cachedData); lastFitViewRequestRef.current = fitViewRequest; }
       if (geometryKey !== previousGeometryKey) {
         previousGeometryKey = geometryKey; chamferRequests.invalidate();
         host.dataset.pendingGeometry = "true"; onStatus("connecting");

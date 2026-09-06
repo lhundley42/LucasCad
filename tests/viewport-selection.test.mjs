@@ -24,6 +24,7 @@ class Renderer {
 mock.module('three', {namedExports:{...THREE, WebGLRenderer:Renderer}});
 const { CadViewport } = await import('../app/components/CadViewport.tsx');
 const { FilletSession } = await import('../app/components/FilletSession.tsx');
+const { isolateBodyFeatures } = await import('../app/components/bodyVisibility.ts');
 const { projectSketchPoint } = await import('../app/components/sketchProjection.ts');
 
 test('sketch orbit continuously publishes the editable plane projection; Normal uses the nearest side without a rebuild',async t=>{
@@ -52,6 +53,21 @@ test('sketch orbit continuously publishes the editable plane projection; Normal 
 const face = {id:'body:face-1',bodyId:'body',faceIndex:1,vertices:[[-20,-20,0],[20,-20,0],[20,20,0],[-20,20,0]],triangles:[[0,1,2],[0,2,3]],normal:[0,0,1],center:[0,0,0],planar:true};
 const edge = {id:'body:edge-1',bodyId:'body',edgeIndex:1,points:[[-20,-20,0],[20,-20,0]],linear:true};
 const payload = {faces:[face],edges:[edge],sketches:[],properties:{valid:true,solidCount:1,bodyCount:1,faceCount:1,edgeCount:1,volume:1,bounds:{x:40,y:40,z:1}}};
+test('per-body colors repaint existing meshes without rebuilding and selections override them',async t=>{
+  const feature={id:'e',type:'extrude',combine:'new',bodyId:'body'};
+  const model={features:[feature],sketches:[]};
+  const ui=await mount(t,payload,{document:model});
+  const mesh=ui.renderer.scene.children.flatMap(g=>g.children).find(o=>o.userData.faceId===face.id && o instanceof THREE.Mesh);
+  const initial=mesh.material.color.getHexString();
+  const colored={...model,features:[{...feature,bodyColor:'#b87333'}]};
+  await ui.render({document:colored});assert.equal(mesh.material.color.getHexString(),'b87333');
+  await ui.render({selectedBodyId:'body'});assert.notEqual(mesh.material.color.getHexString(),'b87333');
+  await ui.render({selectedBodyId:null,selectedFaceIds:[face.id]});assert.equal(mesh.material.color.getHex(),0xf6b94d);
+  await ui.render({selectedFaceIds:[]});assert.equal(mesh.material.color.getHexString(),'b87333');
+  await ui.render({document:model});assert.equal(mesh.material.color.getHexString(),initial);
+  assert.equal(ui.calls.length,1);assert.equal(ui.host.querySelector('canvas'),ui.canvas);
+  assert.ok(ui.renderer.scene.children.some(g=>g.children.includes(mesh)));
+});
 async function mount(t, testPayload = payload, initialProps = {}) {
   const calls=[],statuses=[],faces=[],edges=[];
   globalThis.fetch = (url,options) => new Promise(resolve=>calls.push({url,body:JSON.parse(options.body),resolve}));
@@ -102,6 +118,40 @@ test('interactive fillet keeps previews through radius changes and commit mesh h
   await ui.render({fillet:{...fillet,baseDocument:committed}});
   assert.equal(previewCount(),0);
   assert.equal(ui.calls.filter(c=>c.url.endsWith('/api/document')).length,2);
+});
+
+test('Fit requested while a new model loads survives cached display redraws',async t=>{
+  const ui=await mount(t);
+  const before=ui.renderer.camera.position.clone();
+  const doc={features:[{id:'new',type:'extrude',combine:'new',bodyId:'big'}],sketches:[]};
+  await ui.render({document:doc,fitViewRequest:1,originCsyVisible:false});
+  await ui.render({originCsyVisible:true});
+  assert.ok(ui.renderer.camera.position.distanceTo(before)<.001,'old mesh must not consume the pending Fit');
+  const largeFace={...face,bodyId:'big',vertices:face.vertices.map(([x,y,z])=>[x*30+2000,y*30,z])};
+  await ui.reply(1,true,{...payload,faces:[largeFace],properties:{...payload.properties,bounds:{x:1200,y:1200,z:1}}});
+  assert.ok(ui.renderer.camera.position.length()>1000,'new mesh is fitted when it arrives');
+});
+
+test('body isolation is display-only, restores the target, and preserves consumed bodies and parameters',()=>{
+  const features=[{id:'a',type:'extrude',combine:'new',bodyId:'hull',distance:20},{id:'b',type:'revolve',combine:'new',bodyId:'helm',bodyVisible:false,visible:false,angle:360},{id:'c',type:'fillet',targetBodyId:'helm',visible:false,radius:1},{id:'d',type:'extrude',combine:'new',bodyId:'consumed'}];
+  const result=isolateBodyFeatures(features,'helm',['hull','helm']);
+  assert.equal(result[0].bodyVisible,false);assert.equal(result[1].bodyVisible,true);assert.equal(result[1].visible,true);assert.equal(result[2].visible,true);assert.equal(result[3],features[3]);
+  const strip=f=>f.map(({bodyVisible,visible,...rest})=>rest);
+  assert.deepEqual(strip(result),strip(features));assert.equal(isolateBodyFeatures(features,'missing',['hull','helm']),features);
+});
+
+test('Fit frames only visible bodies and current sketch visibility without fetching geometry',async t=>{
+  const remoteFace={...face,id:'remote:face-1',bodyId:'remote',vertices:face.vertices.map(([x,y,z])=>[x+1000,y,z])};
+  const remoteSketch={id:'s',name:'Far section',visible:true,frame:{origin:[0,0,0],xDir:[1,0,0],yDir:[0,1,0],normal:[0,0,1]},paths:[{id:'line',points:[[2000,0,0],[2020,0,0]]}]};
+  const model={features:[{id:'a',type:'extrude',combine:'new',bodyId:'body'},{id:'b',type:'extrude',combine:'new',bodyId:'remote'}],sketches:[{id:'s',plane:'XY',visible:true,entities:[]}]};
+  const ui=await mount(t,{...payload,faces:[face,remoteFace],sketches:[remoteSketch]},{document:model});
+  const allDistance=ui.renderer.camera.position.length();
+  const isolated={...model,features:[model.features[0],{...model.features[1],bodyVisible:false}],sketches:[{...model.sketches[0],visible:false}]};
+  await ui.render({document:isolated,fitViewRequest:1});
+  assert.ok(ui.renderer.camera.position.length()<allDistance/10,'hidden solids and hidden sketches do not spoil detail fitting');
+  const detailDistance=ui.renderer.camera.position.length();
+  await ui.render({document:model,fitViewRequest:2});assert.ok(ui.renderer.camera.position.length()>detailDistance*10);
+  assert.equal(ui.calls.length,1);
 });
 
 test('face and edge pointer picking uses current callbacks without fetching or replacing canvas', async t=>{

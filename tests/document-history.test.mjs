@@ -7,17 +7,37 @@ import {readFileSync} from 'node:fs';
 const dom=new JSDOM('<!doctype html><body></body>',{url:'http://localhost:4310'});
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,React,IS_REACT_ACT_ENVIRONMENT:true});
 const {createRoot}=await import('react-dom/client');
-const {DocumentHistory,resetDocumentHistory}=await import('../app/components/DocumentHistory.tsx');
+const {DocumentHistory,DocumentHistoryButtons,resetDocumentHistory}=await import('../app/components/DocumentHistory.tsx');
 const empty=()=>({sketches:[],features:[],referenceGeometry:[]});
+test('body color application and theme reset are independently undoable and redoable',async t=>{
+  const baseline={...empty(),features:[{id:'e',type:'extrude',combine:'new',bodyId:'body'}]};
+  const ui=await mount(t,baseline);
+  const colored={...baseline,features:[{...baseline.features[0],bodyColor:'#b87333'}]};
+  await ui.commit(colored);await ui.key();assert.deepEqual(ui.model(),baseline);
+  await ui.key('y');assert.deepEqual(ui.model(),colored);
+  await ui.commit(baseline);await ui.key();assert.deepEqual(ui.model(),colored);
+  await ui.key('y');assert.deepEqual(ui.model(),baseline);
+});
 async function mount(t,initial=empty()) {
   const host=document.createElement('div');document.body.append(host);const root=createRoot(host);let model=initial;let pending=false;let cancels=0;let restores=0;
-  const draw=()=>root.render(React.createElement(DocumentHistory,{document:model,onRestore:value=>{model=value;restores++;draw();},cancelPending:()=>{if(pending){pending=false;cancels++;return true;}return false;}},React.createElement('div',null,React.createElement('svg',{className:'sketch-canvas'}),React.createElement('input'),React.createElement('textarea'),React.createElement('div',{contentEditable:true}))));
+  const draw=()=>root.render(React.createElement(DocumentHistory,{document:model,onRestore:value=>{model=value;restores++;draw();},cancelPending:()=>{if(pending){pending=false;cancels++;return true;}return false;}},React.createElement('div',null,React.createElement(DocumentHistoryButtons),React.createElement('svg',{className:'sketch-canvas'}),React.createElement('input'),React.createElement('textarea'),React.createElement('div',{contentEditable:true}))));
   await act(async()=>draw());t.after(async()=>{await act(async()=>root.unmount());host.remove();});
   const commit=async value=>{model=structuredClone(value);await act(async()=>draw());};
   const key=async (key='z',options={},target=window)=>{const event=new window.KeyboardEvent('keydown',{key,ctrlKey:true,bubbles:true,cancelable:true,...options});await act(async()=>target.dispatchEvent(event));return event;};
   const pointer=async type=>{const event=new window.Event(type,{bubbles:true});Object.assign(event,{button:0,pointerId:1});await act(async()=>{host.querySelector('svg').dispatchEvent(event);if(type==='pointerup')await new Promise(r=>setTimeout(r,5));});};
   return {commit,key,pointer,host,model:()=>model,setPending:()=>pending=true,cancels:()=>cancels,restores:()=>restores,reset:async value=>{await act(async()=>{resetDocumentHistory(value);model=value;draw();});}};
 }
+
+test('ribbon Undo and Redo use the same history as keyboard, including visibility and preview cancellation',async t=>{
+  const ui=await mount(t);const buttons=()=>ui.host.querySelectorAll('button');
+  assert.equal(buttons()[0].disabled,true);assert.equal(buttons()[1].disabled,true);
+  const changed={...empty(),features:[{id:'sail',type:'extrude',bodyVisible:false}]};
+  await ui.commit(changed);assert.equal(buttons()[0].disabled,false);
+  ui.setPending();await act(async()=>buttons()[0].click());assert.equal(ui.cancels(),1);assert.deepEqual(ui.model(),changed);
+  await act(async()=>buttons()[0].click());assert.deepEqual(ui.model(),empty());assert.equal(buttons()[1].disabled,false);
+  await act(async()=>buttons()[1].click());assert.deepEqual(ui.model(),changed);
+  await ui.key();assert.deepEqual(ui.model(),empty());await act(async()=>buttons()[1].click());assert.deepEqual(ui.model(),changed);
+});
 
 for(const type of ['extrude','revolve','loft','sweep','fillet','chamfer','draft','shell','union']) {
   test(`Ctrl+Z / redo restores ${type} creation, all edited parameters and dependency deletion`,async t=>{

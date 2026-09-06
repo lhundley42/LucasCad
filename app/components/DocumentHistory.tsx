@@ -56,5 +56,15 @@ export function DocumentHistory({ document: model, onRestore, cancelPending, chi
     window.addEventListener("keydown", keyboard, true); window.addEventListener(RESET_EVENT, reset);
     return () => { clearTimeout(timer); window.removeEventListener("pointerdown", down, true); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); window.removeEventListener("blur", up); window.removeEventListener("keydown", keyboard, true); window.removeEventListener(RESET_EVENT, reset); };
   }, []);
-  return <HistoryContext.Provider value={history}>{children}</HistoryContext.Provider>;
+  const controls = { ...history,
+    undo: () => { if (!latest.current.cancelPending()) latest.current.history.undo(); },
+    redo: () => { if (!latest.current.cancelPending()) latest.current.history.redo(); },
+  };
+  return <HistoryContext.Provider value={controls}>{children}</HistoryContext.Provider>;
+}
+
+/** The ribbon and keyboard use the same history, including preview cancellation. */
+export function DocumentHistoryButtons({ pending = false }: { pending?: boolean }) {
+  const history = useDocumentHistory();
+  return <><button className="tool" disabled={!history || (!history.canUndo && !pending)} title="Undo (Ctrl+Z)" onClick={() => history?.undo()}>Undo</button><button className="tool" disabled={!history || (!history.canRedo && !pending)} title="Redo (Ctrl+Y / Ctrl+Shift+Z)" onClick={() => history?.redo()}>Redo</button></>;
 }

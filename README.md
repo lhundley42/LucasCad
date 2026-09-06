@@ -2,6 +2,14 @@
 
 A thoughtfully developed, local-first, browser-driven analog to popular sketch-based CAD software.
 
+## Release status
+
+Experimental local-only software, not a production-ready network service or a
+certified engineering tool. The [release audit](docs/release-audit.md) records
+open security, licensing and provenance findings. Read [third-party notices](THIRD_PARTY_NOTICES.md)
+and [security guidance](SECURITY.md) before redistributing or deploying it.
+Public source availability is not a blanket license for bundled dependencies.
+
 The current vertical slice uses Open CASCADE through CadQuery for exact B-Rep
 geometry and STEP export. Three.js displays a tessellated copy of each exact
 face for interactive orbiting and face selection.
@@ -9,6 +17,12 @@ face for interactive orbiting and face selection.
 ## Run locally
 
 From PowerShell in this directory:
+
+Install Node.js 22.13+ and pnpm, then create a Python environment and install
+`backend/requirements-dev.txt`. Use a supported, security-patched Python/pip
+combination and review the audit's dependency advisories before installation.
+Run `pnpm install --frozen-lockfile`. Dependencies must be installed on the target
+machine; do not copy another machine's `.venv` or `node_modules`.
 
 ```powershell
 .\start-cad.ps1

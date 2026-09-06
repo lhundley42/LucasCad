@@ -49,8 +49,8 @@ test("error UI exposes reversible recovery; previews cancel rather than truncate
   const viewport = readFileSync(new URL("../app/components/CadViewport.tsx", import.meta.url), "utf8");
   assert.match(page, /Back out to last working model/);
   assert.match(page, /Back out of failed preview/);
-  assert.match(page, /Undo the last rebuild backout/);
-  assert.match(page, /recoveryUndo\.restoredKey !== documentKey\(cadDocument\)/);
+  assert.match(page, /DocumentHistoryButtons/);
+  assert.match(page, /onRestore=\{restoreHistoryDocument\}/);
   assert.match(page, /controller\.signal\.aborted \|\| documentKey\(currentDocumentRef\.current\) !== key/);
   assert.match(viewport, /built.previewFeature \|\| editingSketchId \? undefined : \{ sketches: built.sketches/);
 });

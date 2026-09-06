@@ -6,6 +6,12 @@ from fillet_limits import FilletWorkbench, geometry_key
 from server import apply_body_feature, build_document, fillet_preview_mesh
 
 
+def test_body_colors_do_not_invalidate_geometry_cache():
+    base = {"features": [{"id": "hull", "type": "extrude", "distance": 20}]}
+    colored = {"features": [{**base["features"][0], "bodyColor": "#b87333"}]}
+    assert geometry_key(base) == geometry_key(colored)
+
+
 def workbench(shape):
     calls = []
     def build(document):

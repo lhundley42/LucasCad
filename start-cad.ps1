@@ -1,13 +1,21 @@
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Join-Path $projectRoot ".venv\Scripts\python.exe"
-$pnpm = "C:\Users\PRC X-FORCE S.E. PC\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback\pnpm.cmd"
-$nodeBin = "C:\Users\PRC X-FORCE S.E. PC\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin"
+# Prefer ordinary user-installed tools; retain a portable local Codex fallback.
+$pnpmCommand = Get-Command pnpm.cmd,pnpm -ErrorAction SilentlyContinue | Select-Object -First 1
+$pnpm = if ($pnpmCommand) { $pnpmCommand.Source } else { $null }
+$runtime = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.cache\codex-runtimes\codex-primary-runtime\dependencies'
+$nodeBin = Join-Path $runtime 'node\bin'
+if (-not (Get-Command node -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath $nodeBin)) { $env:Path = "$nodeBin;$env:Path" }
+if (-not $pnpm) {
+    $fallback = Join-Path $runtime 'bin\fallback\pnpm.cmd'
+    if (Test-Path -LiteralPath $fallback) { $pnpm = $fallback }
+}
+if (-not $pnpm -or -not (Get-Command node -ErrorAction SilentlyContinue)) { throw "Install Node.js 22.13+ and pnpm, then reopen this launcher." }
 $webPort = 4310
 $apiPort = 4311
 
 if (-not (Test-Path -LiteralPath $python)) { throw "Python environment not found. Create .venv and install backend/requirements.txt first." }
-$env:Path = "$nodeBin;$env:Path"
 
 $api = Start-Process -FilePath $python -ArgumentList "-m", "uvicorn", "backend.server:app", "--host", "127.0.0.1", "--port", $apiPort, "--reload", "--reload-dir", "backend" -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
 try {

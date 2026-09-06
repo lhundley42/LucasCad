@@ -2,7 +2,7 @@ import type { DocumentRequest } from "./CadViewport";
 
 // Display metadata must never invalidate solid geometry.
 export function geometryDocumentKey(document: DocumentRequest): string {
-  return JSON.stringify(document, (key, value) => ["name", "bodyName", "visible", "bodyVisible", "dimensionOffsets", "hiddenDimensionKeys", "sourceLabel"].includes(key) ? undefined : value);
+  return JSON.stringify(document, (key, value) => ["name", "bodyName", "bodyColor", "visible", "bodyVisible", "dimensionOffsets", "hiddenDimensionKeys", "sourceLabel"].includes(key) ? undefined : value);
 }
 
 /** One running calculation and only the newest pending input. Stale results

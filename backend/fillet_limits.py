@@ -9,7 +9,7 @@ import cadquery as cq
 
 
 def geometry_key(document):
-    ignored = {"name", "bodyName", "visible", "bodyVisible", "dimensionOffsets", "hiddenDimensionKeys", "sourceLabel", "metadata", "meshQuality"}
+    ignored = {"name", "bodyName", "bodyColor", "visible", "bodyVisible", "dimensionOffsets", "hiddenDimensionKeys", "sourceLabel", "metadata", "meshQuality"}
     def clean(value):
         if isinstance(value, dict):
             return {k: clean(v) for k, v in value.items() if k not in ignored}
