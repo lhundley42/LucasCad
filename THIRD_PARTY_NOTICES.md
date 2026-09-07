@@ -9,7 +9,7 @@ trademarks, fonts, images, or optional binary components.
 
 | Component | Installed version | Declared license |
 | --- | --- | --- |
-| React / React DOM / React Server DOM | 19.2.6 | MIT |
+| React / React DOM / React Server DOM | 19.2.8 | MIT |
 | Three.js | 0.185.1 | MIT |
 | CadQuery | 2.8.0 | Apache-2.0 |
 | CadQuery OCP bindings / proxy | 7.9.3.1.1 | Apache-2.0 |
@@ -18,12 +18,13 @@ trademarks, fonts, images, or optional binary components.
 | Uvicorn | 0.52.4 | BSD-3-Clause |
 | VTK, including optional presentation rendering | 9.6.2 | BSD; bundled components have additional notices |
 | CasADi, a CadQuery dependency | 3.7.2 | LGPL-3.0-or-later; bundled solvers have separate terms |
-| Vinext / Vite | 1.0.0-beta.2 / 8.0.13 | MIT |
+| Vinext / Vite | 1.0.0-beta.9 / 8.0.16 | MIT |
 | OpenAI Sites Vite plugin | 0.1.0 | MIT, copyright OpenAI |
 | Drizzle ORM | 0.45.2 | Apache-2.0 |
 
 The installed dependency inventory is in [docs/release/dependencies.json](docs/release/dependencies.json).
-It covers installed packages, including development/test and indirect dependencies;
+It covers the active installed pnpm graph and Python environment, including
+development/test and indirect dependencies, excluding stale npm store entries;
 it is **not** a complete list of embedded native libraries or absent platform-specific packages.
 License metadata is evidence, not a substitute for reading the applicable terms.
 
@@ -53,6 +54,13 @@ access and does not modify dependencies.
   governs the shipped library. Obtain upstream version-specific clarification;
   do not assume every bundled solver is permissively licensed or declare an
   infringement from these files alone.
+- Follow-up research found COIN-OR's [METIS installation guidance](https://github.com/coin-or-tools/ThirdParty-Metis/blob/stable/2.0/INSTALL.Metis),
+  which includes a 2009 reply from METIS's author describing unrestricted
+  noncommercial use and a restriction on reselling METIS for commercial use.
+  That is useful context, not a modern version-specific GPL-compatible grant
+  for the exact CasADi DLLs. The EPL notice covers the build harness; it must
+  not be assumed to replace the separately downloaded METIS source license.
+  Installer redistribution remains on hold pending clarification.
 - Do not publish `.venv`, `node_modules`, native DLLs or a prebuilt installer as
   part of this source release. Package-specific native attribution/source
   obligations have **not** been cleared by this audit.
@@ -61,9 +69,12 @@ access and does not modify dependencies.
 
 LucasCad contains project-specific CAD code and adapted web starter scaffolding.
 Installed React/Vinext/Sites licenses are collected above. The original starter
-template's precise source revision and separate asset licensing have not been
-independently established. `public/favicon.svg`, `file.svg`, `globe.svg` and
-`window.svg` remain starter-derived assets pending provenance confirmation.
+template's precise source revision has not been independently established.
+The four uncertain starter SVGs have been removed from the current source:
+`favicon.svg` was replaced with a new, simple LucasCad LC text monogram, and the
+unused `file.svg`, `globe.svg` and `window.svg` were deleted. The replacement
+monogram is a LucasCad-original GPL-3.0-only asset and embeds no font file.
+Old starter assets remain in Git history; no history rewrite was authorized.
 
 SolidWorks, NX and Onshape references in documentation describe workflow research,
 not affiliation or endorsement. No proprietary CAD SDK is declared in the

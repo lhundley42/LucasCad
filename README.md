@@ -15,7 +15,7 @@ without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
 PURPOSE. See [LICENSE](LICENSE) for the complete terms.
 
 This grant covers LucasCad-original application, backend, test and tooling code.
-Third-party code, dependencies, notices and starter-derived assets retain their
+Third-party code, dependencies and notices retain their
 upstream terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). No rights in
 third-party material or unapproved example models/images are granted by this notice.
 The [release audit](docs/release-audit.md) still contains unresolved distribution checks.
@@ -36,9 +36,11 @@ face for interactive orbiting and face selection.
 
 From PowerShell in this directory:
 
-Install Node.js 22.13+ and pnpm, then create a Python environment and install
-`backend/requirements-dev.txt`. Use a supported, security-patched Python/pip
-combination and review the audit's dependency advisories before installation.
+Install a security-patched Node.js 22.13+ and pnpm 11 (validated with Node
+24.19.0 and pnpm 11.19.0), then create a Python environment. Upgrade pip within
+that environment (`python -m pip install --upgrade "pip>=26.2"`) before installing
+`backend/requirements-dev.txt`. Use a supported, security-patched Python version.
+Review the audit's dependency advisories before installation.
 Run `pnpm install --frozen-lockfile`. Dependencies must be installed on the target
 machine; do not copy another machine's `.venv` or `node_modules`.
 
@@ -55,6 +57,7 @@ competing with other local development applications.
 ```powershell
 .\.venv\Scripts\python.exe -m pytest backend\test_server.py -q
 pnpm exec vinext build
+pnpm run test:dependencies
 ```
 
 The backend tests verify sketch diagnostics, document replay, Boolean cuts,

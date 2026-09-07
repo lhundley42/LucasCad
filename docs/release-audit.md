@@ -3,8 +3,9 @@
 ## Decision
 
 **Audit complete with unresolved findings; not cleared as a clean public release
-or bundled installer.** No repository visibility change, push, dependency upgrade,
-credential rotation or Git history rewrite was performed by this audit.
+or bundled installer.** The follow-up below fixes the identified dependency
+advisories and current starter icons. No repository visibility change, push,
+credential rotation or Git history rewrite was performed.
 
 This is a bounded engineering/licensing review, not legal advice, a penetration
 test, a complete supply-chain certification or a guarantee of originality.
@@ -27,7 +28,7 @@ test, a complete supply-chain certification or a guarantee of originality.
   nine historical commits. The current launcher was cleaned up; history was not
   rewritten. The owner must accept that historical disclosure or authorize a
   separate sanitized-publication/history plan.
-- Installed Windows inventory: **505 unique npm package/version pairs and 68
+- Original installed Windows inventory: **505 unique npm package/version pairs and 68
   Python distributions**. Includes build/test/indirect packages, not just runtime.
   Generated notices preserve **385 distinct upstream license/notice texts**.
   31 package records lack installed notice files; this is explicitly not a
@@ -38,16 +39,58 @@ test, a complete supply-chain certification or a guarantee of originality.
 
 | Priority | Finding | Disposition |
 | --- | --- | --- |
-| High | npm audit: 26 advisories — 14 high, 9 moderate, 3 low; zero critical reported | **Open.** See `release/security-advisories.json`. Requires dependency compatibility/security update pass. |
-| High | Local development dependencies include actual server components, not only offline build utilities | **Open.** Vite, React Server DOM, Undici, ws, sharp, image-size, fast-uri and esbuild need path-specific triage. `dev: true` does not make an advisory irrelevant. |
-| Medium | Python advisory scan reports 7 entries (6 distinct IDs) for installed pip 25.0.1 | **Open.** Audit recommends supported patched pip, at least 26.2 for the listed fixes, before installing packages. No other installed Python distribution was flagged in this scan. |
+| High | Original npm audit: 26 advisories — 14 high, 9 moderate, 3 low | **Fixed in current lockfile.** Follow-up scan reports zero known advisories, with no audit exclusions. See `release/security-advisories.json`. |
+| High | Local development dependencies include actual server components, not only offline build utilities | **Patched; exposure boundary remains.** Updated Vite, React Server DOM, Undici, ws, sharp, fast-uri and esbuild; Vinext upgrade removes image-size. `dev: true` does not make an advisory irrelevant. |
+| Medium | Original Python scan: 7 entries (6 distinct IDs) for pip 25.0.1 | **Fixed in this environment.** Upgraded project-local pip to 26.2.1; fresh scan of all 68 distributions reports zero known advisories, none skipped. README documents pip >=26.2 for fresh installs. |
 | Release gate | No LucasCad project-level license | **Resolved 2026-09-06:** owner selected GPLv3. Added the full GNU GPL version 3 text, a project-original source scope/warranty notice, and `GPL-3.0-only` package metadata. This does not clear third-party compatibility or provenance issues. |
 | Release gate | CasADi wheel includes conflicting-looking EPL-1.0 and legacy METIS 4 restrictive license notices | **Unresolved binary provenance.** Ask upstream which terms govern the exact compiled component. Do not bundle `.venv`/solver DLLs until resolved. Not a finding of infringement. |
 | Release gate | LGPL/MPL/copyleft dependencies and incomplete native source/notice inventory | **Open for binary release.** Collected notice texts do not alone satisfy all corresponding-source/relinking requirements. |
-| Release gate | Starter template/assets not independently traced to an exact revision/license; user `chalis.json` needs publication approval | **Owner/upstream review needed.** No claim that all repository content is independently authored or automatically MIT. |
+| Release gate | Starter template/assets not independently traced to an exact revision/license; user `chalis.json` needs publication approval | **Partially resolved.** Current uncertain starter SVGs replaced/removed. Exact starter-code provenance, historical assets and model publication approval still need review. |
 | Privacy | Hard-coded personal Windows path in launcher | **Fixed in current source.** PATH lookup and a user-relative optional runtime fallback replace it. Historical copies remain. |
 | Hygiene | Startup logs could be accidentally added | **Fixed.** Ignore startup logs and private audit working files. No logs were deleted. |
 | Documentation | Missing third-party credit and security/release guidance | **Fixed.** Added inventory, collected upstream notices, this report and `SECURITY.md`. |
+
+## Security cleanup follow-up — 2026-09-06
+
+- React/React DOM/React Server DOM: 19.2.8; Vite: 8.0.16;
+  Vinext: 1.0.0-beta.9; its RSC peer plugin: 0.5.34.
+- `image-size` 2.0.3, although named as patched in advisory metadata, was not
+  available from the registry during this pass. Vinext beta.9 removes that
+  dependency, avoiding a private patch or advisory suppression.
+- Narrow security overrides in `pnpm-workspace.yaml` select esbuild 0.28.2,
+  ws 8.21.0, Undici 7.29.0, sharp 0.35.0 and fast-uri 3.1.6 while upstream parents
+  lag behind. Revisit these overrides with future parent upgrades. pnpm 11 reads
+  these settings from the workspace file, not `package.json`.
+- Project-local pip is 26.2.1. Fresh npm and installed-Python advisory scans
+  report **zero known vulnerabilities**, with no exclusions or skipped Python
+  packages. This is a point-in-time result, not a security guarantee.
+- Active inventory now contains **497 npm package/version pairs and 68 Python
+  distributions**, with **397 distinct notice texts** and **28 package records
+  lacking supplied notice files**. The generator now follows `pnpm list`'s active
+  installed graph rather than counting obsolete packages retained in its store.
+- Replaced the starter favicon with a new LC text monogram and removed three
+  unused starter SVGs. They are recoverable in Git; history was not rewritten.
+- COIN-OR's [INSTALL.Metis](https://github.com/coin-or-tools/ThirdParty-Metis/blob/stable/2.0/INSTALL.Metis)
+  provides older author clarification about noncommercial use and reselling
+  METIS. This narrows the question but does not establish redistribution terms
+  for every exact bundled solver binary. Keep the installer gate open; seek
+  version-specific terms, GPL compatibility and source/relinking instructions
+  before bundling. No maintainer was contacted and no kernel was replaced.
+
+Validation: the production build and **198 existing frontend tests**, **105
+backend tests**, and **2 new dependency-compatibility tests** pass. The latter
+exercise actual sharp PNG resizing through Miniflare and Drizzle's TypeScript
+schema-to-SQL export through the upgraded esbuild, without writing a database.
+`pnpm install --frozen-lockfile` succeeds and `pip check` reports no broken
+requirements. An isolated loopback Vite server returned HTTP 200 for the CAD
+page and replacement favicon; no user browser model was reloaded. Existing
+chunk-size and test deprecation warnings remain. No public deployment occurred.
+The temporary smoke-test server was stopped. Restart the normal LucasCad
+launcher before relying on the patched server dependencies; existing user
+servers were deliberately left running to avoid interrupting open models.
+Gitleaks found no secrets in 13 reachable commits through `68dcb8d`, or in the
+128-file release candidate. Personal paths and old starter assets in history
+remain explicitly outside this cleanup's removal scope.
 
 ## Security boundaries
 
@@ -74,11 +117,11 @@ rights clearance was performed. Owner review of example models/images remains re
 
 ## Reproduction
 
-Validation on the audited working tree: `pnpm test` passed **198 tests**, including
+Original validation on the audited working tree: `pnpm test` passed **198 tests**, including
 the production build; backend pytest passed **105 tests**, with one existing
 Starlette/httpx deprecation warning. The revised PowerShell launcher parsed
 without errors. Existing application servers and browser models were not restarted.
-These correctness tests do not resolve the dependency advisories.
+See the follow-up above for the patched dependency validation.
 
 1. Install the locked project dependencies on the target platform; never copy a
    Windows environment to another OS. Record a fresh native-library inventory.
@@ -89,7 +132,8 @@ These correctness tests do not resolve the dependency advisories.
    --format json --output <private-report>`.
 5. Run `node tools/security_report.mjs <private-python-report>` to save package
    advisory evidence without embedding the local report path.
-6. Run `pnpm test` and `.venv/Scripts/python.exe -m pytest backend -q` on Windows.
+6. Run `pnpm test`, `pnpm run test:dependencies` and
+   `.venv/Scripts/python.exe -m pytest backend -q` on Windows.
 7. Resolve the remaining open release gates, preserve the selected GPLv3 license, then perform
    a new scan on the exact publication commit. Visibility change requires approval.
 

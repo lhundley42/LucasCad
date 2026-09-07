@@ -1,5 +1,5 @@
 {
-  "scope": "Installed Windows development environment; includes transitive/build/test packages. Not a complete cross-platform binary BOM. Regenerate on every release target.",
+  "scope": "Active installed pnpm dependency graph and installed Python environment; includes transitive/build/test packages, excludes stale npm store entries. Not a complete cross-platform binary BOM. Regenerate on every release target.",
   "packages": [
     {
       "ecosystem": "npm",
@@ -309,27 +309,6 @@
     {
       "ecosystem": "npm",
       "name": "@esbuild/win32-x64",
-      "version": "0.18.20",
-      "license": "MIT",
-      "notices": []
-    },
-    {
-      "ecosystem": "npm",
-      "name": "@esbuild/win32-x64",
-      "version": "0.25.12",
-      "license": "MIT",
-      "notices": []
-    },
-    {
-      "ecosystem": "npm",
-      "name": "@esbuild/win32-x64",
-      "version": "0.27.3",
-      "license": "MIT",
-      "notices": []
-    },
-    {
-      "ecosystem": "npm",
-      "name": "@esbuild/win32-x64",
       "version": "0.28.2",
       "license": "MIT",
       "notices": []
@@ -479,7 +458,7 @@
     {
       "ecosystem": "npm",
       "name": "@img/sharp-win32-x64",
-      "version": "0.34.5",
+      "version": "0.35.0",
       "license": "Apache-2.0 AND LGPL-3.0-or-later",
       "notices": [
         "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68"
@@ -594,7 +573,7 @@
     {
       "ecosystem": "npm",
       "name": "@oxc-project/types",
-      "version": "0.130.0",
+      "version": "0.133.0",
       "license": "MIT",
       "notices": [
         "95ced5ecf1133fbf41d409b5555c86c344f83f3b019926057ddbc07cfdcc27b3"
@@ -637,18 +616,9 @@
     {
       "ecosystem": "npm",
       "name": "@rolldown/binding-win32-x64-msvc",
-      "version": "1.0.1",
+      "version": "1.0.3",
       "license": "MIT",
       "notices": []
-    },
-    {
-      "ecosystem": "npm",
-      "name": "@rolldown/pluginutils",
-      "version": "1.0.0-rc.18",
-      "license": "MIT",
-      "notices": [
-        "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734"
-      ]
     },
     {
       "ecosystem": "npm",
@@ -939,7 +909,7 @@
     {
       "ecosystem": "npm",
       "name": "@vitejs/plugin-rsc",
-      "version": "0.5.26",
+      "version": "0.5.34",
       "license": "MIT",
       "notices": []
     },
@@ -1879,33 +1849,6 @@
     {
       "ecosystem": "npm",
       "name": "esbuild",
-      "version": "0.18.20",
-      "license": "MIT",
-      "notices": [
-        "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
-      ]
-    },
-    {
-      "ecosystem": "npm",
-      "name": "esbuild",
-      "version": "0.25.12",
-      "license": "MIT",
-      "notices": [
-        "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
-      ]
-    },
-    {
-      "ecosystem": "npm",
-      "name": "esbuild",
-      "version": "0.27.3",
-      "license": "MIT",
-      "notices": [
-        "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
-      ]
-    },
-    {
-      "ecosystem": "npm",
-      "name": "esbuild",
       "version": "0.28.2",
       "license": "MIT",
       "notices": [
@@ -2138,7 +2081,7 @@
     {
       "ecosystem": "npm",
       "name": "fast-uri",
-      "version": "3.1.5",
+      "version": "3.1.6",
       "license": "BSD-3-Clause",
       "notices": [
         "b010b0dfdfdb23d7396e03b82cd4621fc9bb8f95d6b0aea70b9c24e12074c786"
@@ -2493,15 +2436,6 @@
       "license": "MIT",
       "notices": [
         "9c94db23dc4b1e9aaee5d195668b916afc71efed54af226b66cf0ccc4389c1c0"
-      ]
-    },
-    {
-      "ecosystem": "npm",
-      "name": "image-size",
-      "version": "2.0.2",
-      "license": "MIT",
-      "notices": [
-        "3109783dad7527b490aabc49c3cb148573c19b41b843e70cf9388a93f3d7fccd"
       ]
     },
     {
@@ -3485,7 +3419,7 @@
     {
       "ecosystem": "npm",
       "name": "react-dom",
-      "version": "19.2.6",
+      "version": "19.2.8",
       "license": "MIT",
       "notices": [
         "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
@@ -3503,7 +3437,7 @@
     {
       "ecosystem": "npm",
       "name": "react-server-dom-webpack",
-      "version": "19.2.6",
+      "version": "19.2.8",
       "license": "MIT",
       "notices": [
         "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
@@ -3512,7 +3446,7 @@
     {
       "ecosystem": "npm",
       "name": "react",
-      "version": "19.2.6",
+      "version": "19.2.8",
       "license": "MIT",
       "notices": [
         "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
@@ -3584,7 +3518,7 @@
     {
       "ecosystem": "npm",
       "name": "rolldown",
-      "version": "1.0.1",
+      "version": "1.0.3",
       "license": "MIT",
       "notices": [
         "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734"
@@ -3708,7 +3642,7 @@
     {
       "ecosystem": "npm",
       "name": "sharp",
-      "version": "0.34.5",
+      "version": "0.35.0",
       "license": "Apache-2.0",
       "notices": [
         "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68"
@@ -3798,7 +3732,7 @@
     {
       "ecosystem": "npm",
       "name": "srvx",
-      "version": "0.11.22",
+      "version": "0.12.8",
       "license": "MIT",
       "notices": [
         "46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082"
@@ -4149,7 +4083,7 @@
     {
       "ecosystem": "npm",
       "name": "undici",
-      "version": "7.24.8",
+      "version": "7.29.0",
       "license": "MIT",
       "notices": [
         "a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27"
@@ -4210,7 +4144,7 @@
     {
       "ecosystem": "npm",
       "name": "vinext",
-      "version": "1.0.0-beta.2",
+      "version": "1.0.0-beta.9",
       "license": "MIT",
       "notices": [
         "19a7b85046eb77c8ab308c68569abbbb59235814297b9c95dc90480f71ec7198"
@@ -4237,10 +4171,10 @@
     {
       "ecosystem": "npm",
       "name": "vite",
-      "version": "8.0.13",
+      "version": "8.0.16",
       "license": "MIT",
       "notices": [
-        "40501d82eb20f60d031aaaa3291a103d72551ebd49e11e73ba94ea34589e7bdd"
+        "21d9391f0a581d83e5f4faceac10136ef6b90588ef10ef7fb681a228044cc562"
       ]
     },
     {
@@ -4404,7 +4338,7 @@
     {
       "ecosystem": "npm",
       "name": "ws",
-      "version": "8.18.0",
+      "version": "8.21.0",
       "license": "MIT",
       "notices": [
         "2b29dcfe0d6471f7e8c92c5fb38c9f93edee10330937055440192f1832b1ecef"
@@ -4922,10 +4856,51 @@
     {
       "ecosystem": "python",
       "name": "pip",
-      "version": "25.0.1",
+      "version": "26.2.1",
       "license": "MIT",
       "notices": [
-        "634300a669d49aeae65b12c6c48c924c51a4cdf3d1ff086dc3456dc8bcaa2104"
+        "4eb1fb1705e2def898e81bcba19c3aac80620d27ba3569d6a6df7b4629d1b5c2",
+        "634300a669d49aeae65b12c6c48c924c51a4cdf3d1ff086dc3456dc8bcaa2104",
+        "86eeee87be2a43f3ff1f56496f451f69243926f025fedbb033666c304c4c161b",
+        "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+        "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d",
+        "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14",
+        "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04",
+        "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427",
+        "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+        "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+        "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+        "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+        "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6",
+        "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17",
+        "1b22b049b5267d6dfc23a67bf4a84d8ec04b9fdfb1a51d360e42b4342c8b4154",
+        "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+        "f388fd38cad13112c1dc0f669bbe80e7f84541edbafb72f3030d2ca7642c3c9d",
+        "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15",
+        "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+        "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+        "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca",
+        "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686",
+        "86eeee87be2a43f3ff1f56496f451f69243926f025fedbb033666c304c4c161b",
+        "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+        "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d",
+        "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14",
+        "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04",
+        "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427",
+        "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+        "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+        "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+        "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+        "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6",
+        "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17",
+        "1b22b049b5267d6dfc23a67bf4a84d8ec04b9fdfb1a51d360e42b4342c8b4154",
+        "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+        "f388fd38cad13112c1dc0f669bbe80e7f84541edbafb72f3030d2ca7642c3c9d",
+        "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15",
+        "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+        "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+        "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca",
+        "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686"
       ]
     },
     {

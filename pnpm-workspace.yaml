@@ -1,0 +1,8 @@
+# Narrow security overrides for dependencies still pinned by upstream tooling.
+# Recheck and remove as parent packages adopt these patched versions.
+overrides:
+  'esbuild@<0.28.1': 0.28.2
+  'ws@>=8 <8.21.0': 8.21.0
+  'undici@>=7 <7.29.0': 7.29.0
+  'sharp@>=0.34 <0.35': 0.35.0
+  'fast-uri@>=3 <3.1.6': 3.1.6
