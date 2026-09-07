@@ -2,6 +2,24 @@
 
 A thoughtfully developed, local-first, browser-driven analog to popular sketch-based CAD software.
 
+## License
+
+Copyright (c) 2026 LucasCad contributors.
+
+LucasCad's project-original source code is free software: you can redistribute
+it and/or modify it under the terms of the GNU General Public License, version 3
+only (`GPL-3.0-only`), as published by the Free Software Foundation.
+
+It is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY**;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE. See [LICENSE](LICENSE) for the complete terms.
+
+This grant covers LucasCad-original application, backend, test and tooling code.
+Third-party code, dependencies, notices and starter-derived assets retain their
+upstream terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). No rights in
+third-party material or unapproved example models/images are granted by this notice.
+The [release audit](docs/release-audit.md) still contains unresolved distribution checks.
+
 ## Release status
 
 Experimental local-only software, not a production-ready network service or a

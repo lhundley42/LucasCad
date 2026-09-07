@@ -41,7 +41,7 @@ test, a complete supply-chain certification or a guarantee of originality.
 | High | npm audit: 26 advisories — 14 high, 9 moderate, 3 low; zero critical reported | **Open.** See `release/security-advisories.json`. Requires dependency compatibility/security update pass. |
 | High | Local development dependencies include actual server components, not only offline build utilities | **Open.** Vite, React Server DOM, Undici, ws, sharp, image-size, fast-uri and esbuild need path-specific triage. `dev: true` does not make an advisory irrelevant. |
 | Medium | Python advisory scan reports 7 entries (6 distinct IDs) for installed pip 25.0.1 | **Open.** Audit recommends supported patched pip, at least 26.2 for the listed fixes, before installing packages. No other installed Python distribution was flagged in this scan. |
-| Release gate | No LucasCad project-level license | **Owner choice pending.** MIT recommended; GPLv3 offered as an alternative. No license grant will be inferred from public visibility. |
+| Release gate | No LucasCad project-level license | **Resolved 2026-09-06:** owner selected GPLv3. Added the full GNU GPL version 3 text, a project-original source scope/warranty notice, and `GPL-3.0-only` package metadata. This does not clear third-party compatibility or provenance issues. |
 | Release gate | CasADi wheel includes conflicting-looking EPL-1.0 and legacy METIS 4 restrictive license notices | **Unresolved binary provenance.** Ask upstream which terms govern the exact compiled component. Do not bundle `.venv`/solver DLLs until resolved. Not a finding of infringement. |
 | Release gate | LGPL/MPL/copyleft dependencies and incomplete native source/notice inventory | **Open for binary release.** Collected notice texts do not alone satisfy all corresponding-source/relinking requirements. |
 | Release gate | Starter template/assets not independently traced to an exact revision/license; user `chalis.json` needs publication approval | **Owner/upstream review needed.** No claim that all repository content is independently authored or automatically MIT. |
@@ -90,7 +90,7 @@ These correctness tests do not resolve the dependency advisories.
 5. Run `node tools/security_report.mjs <private-python-report>` to save package
    advisory evidence without embedding the local report path.
 6. Run `pnpm test` and `.venv/Scripts/python.exe -m pytest backend -q` on Windows.
-7. Resolve the open release gates, obtain the owner's license choice, then perform
+7. Resolve the remaining open release gates, preserve the selected GPLv3 license, then perform
    a new scan on the exact publication commit. Visibility change requires approval.
 
 ## References

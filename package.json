@@ -2,6 +2,7 @@
   "name": "lucascad",
   "version": "0.1.0",
   "private": true,
+  "license": "GPL-3.0-only",
   "engines": {
     "node": ">=22.13.0"
   },

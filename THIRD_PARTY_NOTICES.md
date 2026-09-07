@@ -1,7 +1,8 @@
 # Third-party software and release scope
 
-LucasCad uses independently licensed third-party software. A LucasCad project
-license does not replace these licenses or grant rights in third-party code,
+LucasCad's project-original source code is GPL-3.0-only; see [LICENSE](LICENSE)
+and the scope notice in [README.md](README.md). LucasCad uses independently licensed
+third-party software. The project license does not replace these licenses or grant rights in third-party code,
 trademarks, fonts, images, or optional binary components.
 
 ## Principal components
