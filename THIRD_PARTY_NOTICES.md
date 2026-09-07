@@ -68,8 +68,13 @@ access and does not modify dependencies.
 ## Provenance and branding
 
 LucasCad contains project-specific CAD code and adapted web starter scaffolding.
-Installed React/Vinext/Sites licenses are collected above. The original starter
-template's precise source revision has not been independently established.
+Five retained helper/config files match the syntax of the MIT-licensed
+`@openai/create-sites@0.3.0` templates; its complete license is retained separately
+in [LICENSES/OpenAI-create-sites-MIT.txt](LICENSES/OpenAI-create-sites-MIT.txt).
+See [provenance evidence](docs/release/provenance.md) for exact package integrity,
+file mappings and limits. The custom Worker wrapper's original source attribution
+and the historical initializer revision remain unverified; do not generalize the
+verified helper match to all starter content.
 The four uncertain starter SVGs have been removed from the current source:
 `favicon.svg` was replaced with a new, simple LucasCad LC text monogram, and the
 unused `file.svg`, `globe.svg` and `window.svg` were deleted. The replacement
@@ -86,6 +91,11 @@ Example model construction and rendering scripts are project artifacts. The
 coupe/ship preview images are diagnostic renders, not proof of native lighting
 features, engineering accuracy, manufacturability or safety. Imported user model
 `examples/chalis.json` requires the owner's approval for public distribution.
+Source archive rules exclude that model and diagnostic image/mesh exports without
+deleting them. Git clones and history still contain them; archive exclusions do
+not authorize making the repository public. Generated JSON regression fixtures
+remain in source archives for reproducible testing; public artifact rights review
+is still required.
 
 ## Primary references
 

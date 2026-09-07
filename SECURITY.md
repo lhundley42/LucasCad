@@ -12,7 +12,9 @@ cleared for public-network hosting or untrusted multi-user access.
   environment current. Back up models before testing development builds.
 - Do not commit credentials, local environment files or startup logs. A source
   archive must omit `.git`, `.venv`, `node_modules` and local runtime output.
-- Dependency advisories remain open: see [release audit](docs/release-audit.md).
+- The 2026-09-06 dependency scans reported zero known advisories after patching;
+  rerun them before releases. Licensing and publication gates remain open: see
+  [release audit](docs/release-audit.md) and [provenance decisions](docs/release/provenance.md).
 
 ## Reporting
 
@@ -26,6 +28,8 @@ Run the project test suite and dependency scans before each release:
 
 ```
 pnpm test
+pnpm run test:dependencies
+pnpm run test:release
 pnpm audit --json
 python -m pytest backend -q
 gitleaks git . --log-opts="--all --full-history" --redact --no-banner

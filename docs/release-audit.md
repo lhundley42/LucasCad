@@ -5,7 +5,9 @@
 **Audit complete with unresolved findings; not cleared as a clean public release
 or bundled installer.** The follow-up below fixes the identified dependency
 advisories and current starter icons. No repository visibility change, push,
-credential rotation or Git history rewrite was performed.
+credential rotation or Git history rewrite was performed in the original audit.
+The owner subsequently authorized cleanup and a normal push to the existing
+repository; that synchronization is separate from public-release approval.
 
 This is a bounded engineering/licensing review, not legal advice, a penetration
 test, a complete supply-chain certification or a guarantee of originality.
@@ -45,7 +47,7 @@ test, a complete supply-chain certification or a guarantee of originality.
 | Release gate | No LucasCad project-level license | **Resolved 2026-09-06:** owner selected GPLv3. Added the full GNU GPL version 3 text, a project-original source scope/warranty notice, and `GPL-3.0-only` package metadata. This does not clear third-party compatibility or provenance issues. |
 | Release gate | CasADi wheel includes conflicting-looking EPL-1.0 and legacy METIS 4 restrictive license notices | **Unresolved binary provenance.** Ask upstream which terms govern the exact compiled component. Do not bundle `.venv`/solver DLLs until resolved. Not a finding of infringement. |
 | Release gate | LGPL/MPL/copyleft dependencies and incomplete native source/notice inventory | **Open for binary release.** Collected notice texts do not alone satisfy all corresponding-source/relinking requirements. |
-| Release gate | Starter template/assets not independently traced to an exact revision/license; user `chalis.json` needs publication approval | **Partially resolved.** Current uncertain starter SVGs replaced/removed. Exact starter-code provenance, historical assets and model publication approval still need review. |
+| Release gate | Starter provenance and public model approval | **Partially resolved.** Five helper/config files match MIT-licensed Sites 0.3.0 templates; full license and source integrity retained. Starter SVGs replaced/removed. Custom Worker attribution, historical assets and public model approval remain open. Source archive exclusions protect selected unapproved artifacts, not Git clones/history. |
 | Privacy | Hard-coded personal Windows path in launcher | **Fixed in current source.** PATH lookup and a user-relative optional runtime fallback replace it. Historical copies remain. |
 | Hygiene | Startup logs could be accidentally added | **Fixed.** Ignore startup logs and private audit working files. No logs were deleted. |
 | Documentation | Missing third-party credit and security/release guidance | **Fixed.** Added inventory, collected upstream notices, this report and `SECURITY.md`. |
@@ -94,6 +96,23 @@ remain explicitly outside this cleanup's removal scope.
 
 ## Security boundaries
 
+### Source cleanup and requested synchronization
+
+The follow-up preserves the MIT license for the verified matching Sites helpers,
+adds per-file credit, records package-integrity and syntax-comparison evidence,
+and adds source-archive exclusions plus regression checks. See
+[provenance decisions](release/provenance.md) for the exact remaining questions.
+The user's models remain intact; no history rewrite, force-push, visibility
+change, installer publication or maintainer contact is part of this cleanup.
+Validation for this cleanup: production build, 198 frontend tests, 105 backend
+tests, two dependency-compatibility tests and three release-hygiene tests passed
+(308 tests total). Refreshed npm/Python scans again report zero known advisories.
+
+`pnpm run test:release` checks archive exclusions, retained licenses and absence
+of tracked local environments/native executables. This is a hygiene check, not a
+license clearance. Do not mistake a clean dependency scan or successful push for
+approval to publish the repository or bundle the native solver libraries.
+
 The intended application is loopback-only. The CAD API has no authentication,
 resource quotas or hardened untrusted-model sandbox. The retained Sites auth helper
 assumes a trusted gateway; it is not standalone authentication. An unauthenticated
@@ -132,7 +151,7 @@ See the follow-up above for the patched dependency validation.
    --format json --output <private-report>`.
 5. Run `node tools/security_report.mjs <private-python-report>` to save package
    advisory evidence without embedding the local report path.
-6. Run `pnpm test`, `pnpm run test:dependencies` and
+6. Run `pnpm test`, `pnpm run test:dependencies`, `pnpm run test:release` and
    `.venv/Scripts/python.exe -m pytest backend -q` on Windows.
 7. Resolve the remaining open release gates, preserve the selected GPLv3 license, then perform
    a new scan on the exact publication commit. Visibility change requires approval.

@@ -12,6 +12,7 @@
     "start": "vinext start",
     "test": "pnpm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/sketch-geometry.test.mjs tests/sketch-constraints.test.mjs tests/app-settings.test.mjs tests/project-file.test.mjs tests/rebuild-recovery.test.mjs && node --import tsx --test tests/loft-panel.test.mjs tests/resizable-workspace.test.mjs tests/viewport-requests.test.mjs tests/tree-branch.test.mjs tests/union-panel.test.mjs tests/render-quality.test.mjs tests/sketch-projection.test.mjs tests/sketch-rotated-editing.test.mjs tests/document-history.test.mjs tests/themes.test.mjs tests/body-appearance.test.mjs tests/sweep-panel.test.mjs tests/fillet-session.test.mjs && node --experimental-test-module-mocks --import tsx --test tests/viewport-selection.test.mjs",
     "test:dependencies": "node --test tests/dependency-compatibility.test.mjs",
+    "test:release": "node --test tests/release-hygiene.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

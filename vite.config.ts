@@ -1,3 +1,5 @@
+// Adapted Sites configuration, copyright (c) 2026 OpenAI, MIT.
+// See LICENSES/OpenAI-create-sites-MIT.txt; CAD-specific changes are GPL-3.0-only.
 import { sites } from "@openai/sites-vite-plugin";
 import vinext from "vinext";
 import { defineConfig } from "vite";

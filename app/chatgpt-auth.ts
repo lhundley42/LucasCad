@@ -1,3 +1,5 @@
+// Sites template, copyright (c) 2026 OpenAI, MIT.
+// See LICENSES/OpenAI-create-sites-MIT.txt and docs/release/provenance.md.
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 

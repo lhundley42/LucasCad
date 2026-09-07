@@ -1,0 +1,20 @@
+# Source archives are not binary installers. This does NOT hide files from Git
+# clones/history and is NOT clearance to publish the repository.
+/.venv export-ignore
+/node_modules export-ignore
+/.env* export-ignore
+/.wrangler export-ignore
+/dist export-ignore
+/outputs export-ignore
+/work export-ignore
+/release-audit-private export-ignore
+/lucascad-startup*.log export-ignore
+
+# Preserve the owner's model and diagnostic exports locally/in Git, but leave
+# them out of git-archive source packages pending publication approval.
+/examples/chalis.json export-ignore
+/examples/*.png export-ignore
+/examples/*.step export-ignore
+/examples/*.stp export-ignore
+/examples/*.stl export-ignore
+/artifacts export-ignore

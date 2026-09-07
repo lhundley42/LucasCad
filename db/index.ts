@@ -1,3 +1,5 @@
+// Sites template, copyright (c) 2026 OpenAI, MIT.
+// See LICENSES/OpenAI-create-sites-MIT.txt.
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";

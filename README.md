@@ -27,6 +27,9 @@ certified engineering tool. The [release audit](docs/release-audit.md) records
 open security, licensing and provenance findings. Read [third-party notices](THIRD_PARTY_NOTICES.md)
 and [security guidance](SECURITY.md) before redistributing or deploying it.
 Public source availability is not a blanket license for bundled dependencies.
+Source-archive exclusions preserve owner models locally while omitting selected
+unapproved artifacts from `git archive`. They do not sanitize Git history or make
+an installer cleared for redistribution. See [provenance and release decisions](docs/release/provenance.md).
 
 The current vertical slice uses Open CASCADE through CadQuery for exact B-Rep
 geometry and STEP export. Three.js displays a tessellated copy of each exact
@@ -58,6 +61,7 @@ competing with other local development applications.
 .\.venv\Scripts\python.exe -m pytest backend\test_server.py -q
 pnpm exec vinext build
 pnpm run test:dependencies
+pnpm run test:release
 ```
 
 The backend tests verify sketch diagnostics, document replay, Boolean cuts,
