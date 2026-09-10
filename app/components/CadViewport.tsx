@@ -81,8 +81,20 @@ class PickedPivotControls extends THREE.EventDispatcher<{ change: {} }> {
   enabled = true;
   private drag: { pointerId: number; mode: "rotate" | "pan"; x: number; y: number } | null = null;
 
-  constructor(private readonly camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, private readonly element: HTMLElement) {
+  constructor(private readonly camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, private element: HTMLElement) {
     super();
+    this.connect();
+  }
+
+  setElement(element: HTMLElement) {
+    if (element === this.element) return;
+    this.dispose();
+    this.element = element;
+    this.connect();
+  }
+
+  private connect() {
+    const element = this.element;
     element.addEventListener("pointerdown", this.onPointerDown);
     element.addEventListener("pointermove", this.onPointerMove);
     element.addEventListener("pointerup", this.onPointerUp);
@@ -156,6 +168,8 @@ class PickedPivotControls extends THREE.EventDispatcher<{ change: {} }> {
   update() { /* Camera transforms are applied immediately by the pointer handlers. */ }
   handleResize() { /* Pixel-to-world panning reads the live element size. */ }
   dispose() {
+    if (this.drag && this.element.hasPointerCapture(this.drag.pointerId)) this.element.releasePointerCapture(this.drag.pointerId);
+    this.drag = null;
     this.element.removeEventListener("pointerdown", this.onPointerDown);
     this.element.removeEventListener("pointermove", this.onPointerMove);
     this.element.removeEventListener("pointerup", this.onPointerUp);
@@ -375,6 +389,14 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     const sketchCanvas = sketchMode ? host.parentElement?.querySelector(".sketch-canvas") : null;
     const navigationElement = (sketchCanvas ?? renderer.domElement) as HTMLElement;
     const controls = new PickedPivotControls(camera, navigationElement);
+    // Sketcher can mount after this effect, or replace its SVG on a keyed
+    // remount / hot update. Follow the live drawing surface without rebuilding
+    // the renderer, resetting the camera, or retaining listeners on a dead SVG.
+    const navigationHost = host.parentElement;
+    const navigationObserver = sketchMode && navigationHost ? new window.MutationObserver(() => {
+      controls.setElement((navigationHost.querySelector(".sketch-canvas") ?? renderer.domElement) as HTMLElement);
+    }) : null;
+    navigationObserver?.observe(navigationHost!, { childList: true, subtree: true });
     controls.target.copy(savedViewRef.current?.target ?? new THREE.Vector3(0, 0, 0));
 
     const environmentLight = new THREE.HemisphereLight(0xdaf3ff, 0x17202a, 2.2); scene.add(environmentLight);
@@ -1240,7 +1262,7 @@ export function CadViewport({ document, editingSketchId = null, editingSketch = 
     return () => {
       if (!sketchMode && camera instanceof THREE.PerspectiveCamera) savedViewRef.current = { position: camera.position.clone(), target: controls.target.clone(), up: camera.up.clone(), quaternion: camera.quaternion.clone() };
       disposed = true; filletManipulator.dispose(); syncRuntimeRef.current = null; requests.dispose(); cancelAnimationFrame(animation); chamferRequests.dispose(); resize.disconnect(); renderer.domElement.removeEventListener("pointerdown", onDown); renderer.domElement.removeEventListener("pointermove", onMove); renderer.domElement.removeEventListener("pointerup", onUp); renderer.domElement.removeEventListener("pointercancel", onCancel);
-      controls.removeEventListener("change", syncSketchView); controls.dispose(); navigationElement.removeEventListener("contextmenu", onContextMenu); window.removeEventListener("pointerdown", onWindowPointerDown); window.removeEventListener("keydown", onWindowKeyDown); recenterButton.removeEventListener("click", centerViewOnOrigin); planarButton.removeEventListener("click", snapNearestPlanarView); viewMenu.remove();
+      navigationObserver?.disconnect(); controls.removeEventListener("change", syncSketchView); controls.dispose(); navigationElement.removeEventListener("contextmenu", onContextMenu); window.removeEventListener("pointerdown", onWindowPointerDown); window.removeEventListener("keydown", onWindowKeyDown); recenterButton.removeEventListener("click", centerViewOnOrigin); planarButton.removeEventListener("click", snapNearestPlanarView); viewMenu.remove();
       if (liveSketchGroupRef.current === liveSketchLayer) liveSketchGroupRef.current = null;
       if (sketchFrameRef.current === activeFrame) sketchFrameRef.current = null;
       scene.traverse((object) => { if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Line || object instanceof THREE.Points) { object.geometry.dispose(); (object.material as THREE.Material).dispose(); } });

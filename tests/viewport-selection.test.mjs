@@ -51,6 +51,29 @@ test('sketch orbit continuously publishes the editable plane projection; Normal 
   assert.equal(ui.calls.length,1);assert.equal(ui.host.querySelector('canvas'),ui.canvas);verify();
 });
 const face = {id:'body:face-1',bodyId:'body',faceIndex:1,vertices:[[-20,-20,0],[20,-20,0],[20,20,0],[-20,20,0]],triangles:[[0,1,2],[0,2,3]],normal:[0,0,1],center:[0,0,0],planar:true};
+test('sketch navigation follows late-mounted and replaced sketch canvases without losing the camera',async t=>{
+  const record={id:'s',plane:'XY',entities:[]};
+  const ui=await mount(t,{...payload,sketches:[{id:'s',frame:{origin:[0,0,0],xDir:[1,0,0],yDir:[0,1,0],normal:[0,0,1]},paths:[]}]},{document:{features:[],sketches:[record]},editingSketchId:'s',editingSketch:record});
+  let previous=null;
+  for(let iteration=0;iteration<3;iteration++){
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('sketch-canvas');
+    svg.setPointerCapture=()=>{};svg.hasPointerCapture=()=>false;Object.defineProperty(svg,'clientHeight',{value:600});
+    await act(async()=>{if(previous)previous.replaceWith(svg);else ui.host.appendChild(svg);});
+    const camera=ui.renderer.camera,zoom=camera.zoom,orientation=camera.quaternion.clone();
+    await act(async()=>svg.dispatchEvent(new window.WheelEvent('wheel',{deltaY:120,bubbles:true,cancelable:true})));
+    assert.ok(camera.zoom<zoom,'wheel on current sketch zooms out');
+    for(const [type,x,y,buttons] of [['pointerdown',400,300,4],['pointermove',470,340,4],['pointerup',470,340,0]]){
+      const event=new window.Event(type,{bubbles:true});Object.assign(event,{button:1,buttons,pointerId:1,clientX:x,clientY:y,shiftKey:false});await act(async()=>svg.dispatchEvent(event));
+    }
+    assert.ok(camera.quaternion.angleTo(orientation)>.01,'middle drag on current sketch rotates');
+    const finalZoom=camera.zoom;
+    if(previous)await act(async()=>previous.dispatchEvent(new window.WheelEvent('wheel',{deltaY:120,bubbles:true,cancelable:true})));
+    assert.equal(camera.zoom,finalZoom,'detached canvas no longer controls camera');
+    previous=svg;
+  }
+  assert.equal(ui.calls.length,1,'rebinding navigation never rebuilds model');
+  previous.remove();
+});
 const edge = {id:'body:edge-1',bodyId:'body',edgeIndex:1,points:[[-20,-20,0],[20,-20,0]],linear:true};
 const payload = {faces:[face],edges:[edge],sketches:[],properties:{valid:true,solidCount:1,bodyCount:1,faceCount:1,edgeCount:1,volume:1,bounds:{x:40,y:40,z:1}}};
 test('per-body colors repaint existing meshes without rebuilding and selections override them',async t=>{

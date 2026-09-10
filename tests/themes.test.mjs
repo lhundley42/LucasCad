@@ -21,6 +21,21 @@ test('Tron preserves dark cyan defaults; Old School supplies a blue/white gradie
   assert.equal(themeCssVariables({...THEME_PRESETS.tron,backgroundStyle:'solid'})['--model-background'],'#26313c');
 });
 
+test('unfinished sketch geometry uses the visible theme color, not white, in every creation tool',()=>{
+  const css=readFileSync(new URL('../app/globals.css',import.meta.url),'utf8');
+  const preview=css.match(/\.sketch-preview>\*\{([^}]+)\}/)[1];
+  assert.match(preview,/stroke:var\(--theme-sketch,#55b9e8\)/);
+  assert.match(preview,/stroke-width:1\.6/);
+  assert.match(preview,/stroke-dasharray:5 3/);
+  const luminance=hex=>{const rgb=hex.slice(1).match(/../g).map(v=>parseInt(v,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+  for(const theme of Object.values(THEME_PRESETS)){
+    const vars=themeCssVariables(theme),a=luminance(vars['--theme-sketch']),b=luminance(vars['--theme-sketch-background']);
+    assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=3,`${theme.preset} preview contrast`);
+  }
+  const custom=normalizeTheme({preset:'old-school',colors:{sketch:'#194a82'}});
+  assert.equal(themeCssVariables(custom)['--theme-sketch'],'#194a82');
+});
+
 test('theme validation rejects malformed/injected colors and never mutates presets',()=>{
   const theme=normalizeTheme({preset:'old-school',backgroundStyle:'invalid',colors:{model:'#AABBCC',backgroundTop:'url(https://invalid)',grid:null}});
   assert.equal(theme.colors.model,'#aabbcc');assert.equal(theme.colors.backgroundTop,'#879bb7');assert.equal(theme.backgroundStyle,'linear');

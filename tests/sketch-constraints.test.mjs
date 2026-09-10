@@ -1,5 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { makeTangentConstraint, synchronizeTangencies, tangentSatisfied } from '../app/components/sketchTangency.ts';
+
+test('circle-line tangency preserves radius, side, translation freedom and supports multiple lines', () => {
+  for (const end of [{x:100,y:0},{x:0,y:100},{x:60,y:80}]) for (const side of [-1,1]) {
+    const line={id:'l',type:'line',a:{x:0,y:0},b:end};
+    const circle={id:'c',type:'circle',c:{x:-end.y*side,y:end.x*side},r:7};
+    const relation=makeTangentConstraint(circle,line,'t');assert.ok(relation);
+    const solved=synchronizeTangencies([line,circle],[relation]);assert.ok(tangentSatisfied(relation,solved));assert.equal(solved[1].r,7);
+    const resized=synchronizeTangencies([line,{...solved[1],r:11,c:{x:20,y:45}}],[relation]);assert.ok(tangentSatisfied(relation,resized));assert.equal(resized[1].r,11);
+    const moved=synchronizeTangencies([{...line,a:{x:10,y:8},b:{x:end.x+10,y:end.y+8}},resized[1]],[relation]);assert.ok(tangentSatisfied(relation,moved));
+  }
+  const c={id:'c',type:'circle',c:{x:20,y:30},r:5},x={id:'x',type:'line',a:{x:0,y:0},b:{x:100,y:0}},y={id:'y',type:'line',a:{x:0,y:0},b:{x:0,y:100}};
+  const links=[makeTangentConstraint(c,x,'a'),makeTangentConstraint(y,c,'b')];
+  const solved=synchronizeTangencies([c,x,y],links);assert.deepEqual(solved[0].c,{x:5,y:5});assert.ok(links.every(l=>tangentSatisfied(l,solved)));
+  const parallel={...x,id:'p',a:{x:0,y:50},b:{x:100,y:50}};
+  const conflict=makeTangentConstraint(c,parallel,'bad');assert.equal(tangentSatisfied(conflict,synchronizeTangencies([...solved,parallel],[...links,conflict])),false);
+  assert.equal(makeTangentConstraint(c,c,'bad'),null);assert.equal(makeTangentConstraint(c,{...x,b:x.a},'bad'),null);
+  assert.deepEqual(synchronizeTangencies([c,x],[]),[c,x]);
+});
 
 import {
   angularDimensionLayout,

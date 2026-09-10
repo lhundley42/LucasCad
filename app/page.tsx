@@ -72,6 +72,7 @@ const flipPatternDirection = (reference: PatternDirectionReference): PatternDire
 const flipPatternCenter = (reference: PatternCenterReference): PatternCenterReference => reference.kind === "fixed" ? { ...reference, point: flipPoint(reference.point) } : reference.kind === "origin" ? reference : { ...reference, fallback: flipPoint(reference.fallback) };
 const flipSketchConstraint = (constraint: SketchConstraint): SketchConstraint => {
   if (constraint.type === "mirror") return constraint;
+  if (constraint.type === "tangent") return { ...constraint, side: constraint.side === 1 ? -1 : 1 };
   if (constraint.type === "linear-pattern") return { ...constraint, direction1: flipPatternDirection(constraint.direction1), direction2: constraint.direction2 ? flipPatternDirection(constraint.direction2) : undefined };
   if (constraint.type === "rectangular-pattern") return { ...constraint, direction1: flipPatternDirection(constraint.direction1), direction2: flipPatternDirection(constraint.direction2) };
   if (constraint.type === "circular-pattern") return { ...constraint, center: flipPatternCenter(constraint.center), reverse: !constraint.reverse };

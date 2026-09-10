@@ -56,6 +56,37 @@ def test_invalid_seam_is_inline_unavailable_not_an_exception():
     assert "seam" in result["message"]
 
 
+@pytest.mark.parametrize("inner", [False, True])
+def test_circular_fillet_in_multi_solid_body_preserves_other_solids(inner):
+    cylinder = cq.Workplane("XY").circle(20)
+    if inner:
+        cylinder = cylinder.circle(10)
+    cylinder = cylinder.extrude(20).val()
+    blocks = [cq.Workplane("XY").box(10, 10, 30).faces(">Z").workplane().hole(4).val().translate((40, i * 20, 0)) for i in range(3)]
+    shape = cq.Compound.makeCompound([cylinder, *blocks])
+    edge_index = next(i for i, edge in enumerate(shape.Edges(), 1)
+                      if edge.geomType() == "CIRCLE" and abs(edge.radius() - (10 if inner else 20)) < 1e-6 and edge.Center().z > 19)
+    w, _ = workbench(shape)
+    result = w.evaluate(request([edge_index], 5))
+    assert result["available"] and result["previewFaces"]
+    assert result["radius"] == pytest.approx(5)
+    committed = apply_body_feature(shape, {"type": "fillet", "edgeIndices": [edge_index], "radius": result["radius"]})
+    assert committed.isValid() and len(committed.Solids()) == 4
+    untouched = [solid for solid in committed.Solids() if solid.Center().x > 30]
+    assert len(untouched) == 3
+    assert sorted(solid.Volume() for solid in untouched) == pytest.approx(sorted(solid.Volume() for solid in blocks))
+    assert sorted(solid.Center().toTuple() for solid in untouched) == sorted(solid.Center().toTuple() for solid in blocks)
+
+
+def test_fillet_preview_rejects_result_that_drops_a_solid():
+    first = cq.Workplane("XY").circle(20).extrude(20).val()
+    other = cq.Workplane("XY").box(10, 10, 10).translate((50, 0, 0)).val()
+    shape = cq.Compound.makeCompound([first, other])
+    edge_index = next(i for i, edge in enumerate(shape.Edges(), 1) if edge.geomType() == "CIRCLE")
+    w = FilletWorkbench(lambda doc: ({"body": shape},), lambda body, feature: first, lambda result: [])
+    assert not w.evaluate(request([edge_index], 5))["available"]
+
+
 def test_selection_sets_have_independent_limits_and_presentation_does_not_rebuild():
     shape = cq.Workplane("XY").box(20, 10, 4).val()
     w, calls = workbench(shape)

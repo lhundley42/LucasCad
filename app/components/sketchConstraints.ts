@@ -106,7 +106,16 @@ export type CircularPatternConstraint = {
 
 export type PatternConstraint = LinearPatternConstraint | CircularPatternConstraint;
 
-export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | DiameterDimensionConstraint | RadialDimensionConstraint | MirrorConstraint | PatternConstraint;
+export type TangentConstraint = {
+  id: string;
+  type: "tangent";
+  first: { kind: "node"; entityId: string; handle: "center" };
+  second: { kind: "line"; entityId: string };
+  side: 1 | -1;
+  conflicted?: boolean;
+};
+
+export type SketchConstraint = LinearDimensionConstraint | AngularDimensionConstraint | DiameterDimensionConstraint | RadialDimensionConstraint | MirrorConstraint | PatternConstraint | TangentConstraint;
 
 export type DimensionLayout = {
   first: Point;

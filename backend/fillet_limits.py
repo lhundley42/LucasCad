@@ -43,6 +43,10 @@ class FilletWorkbench:
                 raise ValueError("Select one or more solid edges to fillet.")
             indices = sorted(set(raw_indices))
             edges = body.Edges()
+            # A single body-tree entry may contain several disjoint solids
+            # (for example, an extrusion of patterned sketch profiles). A
+            # fillet must preserve that count, not collapse it to one solid.
+            original_solid_count = len(body.Solids())
             if indices[0] < 1 or indices[-1] > len(edges):
                 raise ValueError("An edge reference changed. Reselect the fillet edges.")
             request_radius = float(payload.get("radius", 2))
@@ -55,7 +59,8 @@ class FilletWorkbench:
                 if radius not in tested:
                     try:
                         result = self.apply(body, {"type": "fillet", "edgeIndices": indices, "radius": radius})
-                        tested[radius] = result if result.isValid() and len(result.Solids()) == 1 and result.Volume() > 1e-9 else None
+                        solids = result.Solids()
+                        tested[radius] = result if result.isValid() and len(solids) == original_solid_count and original_solid_count > 0 and all(solid.Volume() > 1e-9 for solid in solids) else None
                     except Exception:
                         tested[radius] = None
                 return tested[radius]
