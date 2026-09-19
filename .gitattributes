@@ -1,6 +1,9 @@
 # Source archives are not binary installers. This does NOT hide files from Git
 # clones/history and is NOT clearance to publish the repository.
 /.venv export-ignore
+/.tooling export-ignore
+/start-cad.sh text eol=lf
+"/Start LucasCad.command" text eol=lf
 /node_modules export-ignore
 /.env* export-ignore
 /.wrangler export-ignore

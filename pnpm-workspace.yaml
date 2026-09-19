@@ -1,3 +1,9 @@
+# Only these binary dependencies may run installation scripts (pnpm 11).
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
+
 # Narrow security overrides for dependencies still pinned by upstream tooling.
 # Recheck and remove as parent packages adopt these patched versions.
 overrides:

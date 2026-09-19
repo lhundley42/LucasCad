@@ -47,6 +47,7 @@ export default defineConfig(async () => {
 
   return {
     server: {
+      strictPort: true, // A busy CAD port is an error, not a silent move to another URL.
       allowedHosts: ["lucascad.localhost"],
       watch: {
         ignored: ["**/.venv/**", "**/__pycache__/**"],

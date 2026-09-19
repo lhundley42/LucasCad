@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 test('source archive excludes unapproved owner model and diagnostic exports, not test fixtures or licenses', () => {
   const excluded = ['examples/chalis.json', 'examples/Black-Lantern.step',
     'examples/LucasCoupe-preview.png', 'examples/Sweep-hollow-handle.stl',
-    '.venv', 'node_modules', '.env', '.env.local', 'dist', 'artifacts'];
+    '.venv', '.tooling', 'node_modules', '.env', '.env.local', 'dist', 'artifacts'];
   const included = ['LICENSE', 'LICENSES/OpenAI-create-sites-MIT.txt',
     'THIRD_PARTY_LICENSES.txt', 'examples/Black-Lantern.lucascad.json',
     'examples/LucasCoupe.lucascad.json', 'examples/Sweep-hollow-handle.lucascad.json'];

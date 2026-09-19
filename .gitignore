@@ -3,6 +3,7 @@
 # dependencies
 /node_modules
 /.venv/
+/.tooling/
 **/__pycache__/
 .pytest_cache/
 /.pnp
